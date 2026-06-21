@@ -8,4 +8,4 @@ env/
 *.log
 .idea/
 *.pid
-storage/media/
+storage/media/certificates/*
