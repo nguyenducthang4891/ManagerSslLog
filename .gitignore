@@ -8,3 +8,4 @@ env/
 .idea/
 *.pid
 storage/media/certificates/*
+celertbeat*
