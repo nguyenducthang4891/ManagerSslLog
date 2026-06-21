@@ -4,7 +4,6 @@ venv/
 .venv/
 env/
 *.sqlite3
-.env
 *.log
 .idea/
 *.pid
