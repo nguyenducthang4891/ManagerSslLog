@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Nhật ký: {{ hostname }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold mb-0"><i class="bi bi-server me-2"></i>Nhật ký chi tiết: {{ hostname }}</h4>
+        <small class="text-muted">Xem lịch sử chuỗi vết log đẩy từ Agent về hệ thống Elasticsearch</small>
+    </div>
+    <a href="{% url 'monitor_metric' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Quay lại tổng quan
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm mb-4 bg-light">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-4">
+                <select class="form-select form-select-sm" id="detailHours" onchange="loadHostDetailLogs()">
+                    <option value="1">Lịch sử 1 giờ trước</option>
+                    <option value="6">Lịch sử 6 giờ trước</option>
+                    <option value="24" selected>Lịch sử 24 giờ trước</option>
+                    <option value="168">Lịch sử 7 ngày qua</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <select class="form-select form-select-sm" id="detailSeverity" onchange="loadHostDetailLogs()">
+                    <option value="">-- Tất cả mức độ cảnh báo --</option>
+                    <option value="ok">Bình thường (OK)</option>
+                    <option value="warning">Cảnh báo (Warning)</option>
+                    <option value="critical">Nguy cấp (Critical)</option>
+                </select>
+            </div>
+            <div class="col-md-4 text-end">
+                <button class="btn btn-sm btn-dark w-100" onclick="loadHostDetailLogs()"><i class="bi bi-funnel"></i> Thực hiện lọc dữ liệu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small">
+                    <tr>
+                        <th class="ps-3">Thời điểm nhận bản tin</th>
+                        <th>CPU</th>
+                        <th>RAM</th>
+                        <th>Disk</th>
+                        <th>Băng thông nhận (RX)</th>
+                        <th>Băng thông gửi (TX)</th>
+                        <th>Mail Queue</th>
+                        <th>Zimbra Service Down</th>
+                        <th class="pe-3">Mức độ</th>
+                    </tr>
+                </thead>
+                <tbody id="hostDetailLogBody" class="small">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const HOSTNAME = "{{ hostname }}";
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadHostDetailLogs();
+    });
+
+    async function loadHostDetailLogs() {
+        const hours = document.getElementById('detailHours').value;
+        const severity = document.getElementById('detailSeverity').value;
+        const tbody = document.getElementById('hostDetailLogBody');
+
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
+
+        let url = `/monitor/api/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}`;
+        if(severity) url += `&severity=${severity}`;
+
+        try {
+            const res = await fetch(url).then(r => r.json());
+            if(!res.items || res.items.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = res.items.map(item => {
+                let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
+                let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
+                    ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
+                    : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
+
+                let rxMb = item.net_rx ? (item.net_rx / (1024 * 1024)).toFixed(2) + ' MB' : '-';
+                let txMb = item.net_tx ? (item.net_tx / (1024 * 1024)).toFixed(2) + ' MB' : '-';
+                let t = item.timestamp ? item.timestamp.replace('T', ' ').substring(0,19) : '-';
+
+                return `
+                    <tr>
+                        <td class="ps-3 font-monospace fw-bold text-secondary">${t}</td>
+                        <td class="fw-semibold">${item.cpu}%</td>
+                        <td class="fw-semibold">${item.ram}%</td>
+                        <td>${item.disk}%</td>
+                        <td class="font-monospace text-muted">${rxMb}</td>
+                        <td class="font-monospace text-muted">${txMb}</td>
+                        <td><span class="badge bg-dark">${item.queue || 0}</span></td>
+                        <td>${downList}</td>
+                        <td class="pe-3"><span class="badge ${badge} text-uppercase font-monospace">${item.severity}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
+        }
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Giám sát hạ tầng{% endblock %}
+
+{% block extra_css %}
+<style>
+    .severity-badge-critical { background-color: #dc3545; color: #fff; }
+    .severity-badge-warning  { background-color: #fd7e14; color: #fff; }
+    .severity-badge-ok       { background-color: #198754; color: #fff; }
+    .card-critical { border-left: 4px solid #dc3545 !important; }
+    .card-warning { border-left: 4px solid #fd7e14 !important; }
+    .card-ok { border-left: 4px solid #198754 !important; }
+    .progress { height: 8px; border-radius: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Giám sát hạ tầng</h4>
+        <small class="text-muted" id="elkClusterLabel">Đang tải thông tin cụm ELK... Tự động làm mới sau <span id="countdown">12</span>s</small>
+    </div>
+
+    <div class="d-flex gap-2">
+        <div class="btn-group shadow-sm" role="group" aria-label="Bộ chuyển đổi hiển thị">
+            <button type="button" class="btn btn-outline-dark btn-sm active" id="btn-view-grid" onclick="switchView('grid')">
+                <i class="bi bi-grid-3x3-gap-fill me-1"></i>Dạng lưới
+            </button>
+            <button type="button" class="btn btn-outline-dark btn-sm" id="btn-view-table" onclick="switchView('table')">
+                <i class="bi bi-table me-1"></i>Dạng bảng
+            </button>
+        </div>
+        <button class="btn btn-primary btn-sm shadow-sm" id="btnRefresh">
+            <i class="bi bi-arrow-clockwise me-1"></i>Làm mới thủ công
+        </button>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-success text-white">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-white-50 mb-1 small text-uppercase fw-bold">Máy chủ Hoạt động tốt</h6>
+                    <h2 class="fw-bold mb-0 font-monospace" id="summary-ok">{{ summary.total_samples|default:0 }}</h2>
+                </div>
+                <i class="bi bi-check-circle fs-1 text-white-50"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-warning text-white">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-white-50 mb-1 small text-uppercase fw-bold">Cảnh báo (Warning)</h6>
+                    <h2 class="fw-bold mb-0 font-monospace" id="summary-warning">{{ summary.warning_count|default:0 }}</h2>
+                </div>
+                <i class="bi bi-exclamation-triangle fs-1 text-white-50"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-danger text-white">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-white-50 mb-1 small text-uppercase fw-bold">Nguy cấp (Critical)</h6>
+                    <h2 class="fw-bold mb-0 font-monospace" id="summary-critical">{{ summary.critical_count|default:0 }}</h2>
+                </div>
+                <i class="bi bi-slash-circle fs-1 text-white-50"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form id="filterForm" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-muted">Loại thời gian</label>
+                <select class="form-select form-select-sm" id="filterRangeType">
+                    <option value="hours" selected>Theo giờ</option>
+                    <option value="days">Theo ngày</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-muted" id="filterRangeValueLabel">Số giờ</label>
+                <input type="number" class="form-control form-control-sm font-monospace" id="filterRangeValue" value="24" min="1">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted">Mức độ lỗi</label>
+                <select class="form-select form-select-sm" id="filterSeverity">
+                    <option value="">-- Tất cả mức độ --</option>
+                    <option value="ok">Hoạt động ổn định (OK)</option>
+                    <option value="warning">Cảnh báo (Warning)</option>
+                    <option value="critical">Nguy cấp (Critical)</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Tên Máy Chủ (Hostname)</label>
+                <input type="text" class="form-control form-control-sm" id="filterHostname" placeholder="Nhập tên host cần lọc...">
+            </div>
+            <div class="col-md-1 text-end">
+                <button type="submit" class="btn btn-dark btn-sm w-100"><i class="bi bi-search"></i></button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="view-grid-container" class="row g-3">
+    </div>
+
+<div id="view-table-container" class="card border-0 shadow-sm d-none mt-3">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small">
+                    <tr>
+                        <th class="ps-3">Thời gian ghi nhận</th>
+                        <th>Tên Máy Chủ (Hostname)</th>
+                        <th>CPU</th>
+                        <th>RAM</th>
+                        <th>Disk sử dụng</th>
+                        <th>Mail Queue</th>
+                        <th>Sự cố Zimbra Service</th>
+                        <th>Mức độ</th>
+                        <th class="text-end pe-3">Xem log</th>
+                    </tr>
+                </thead>
+                <tbody id="metricTableBody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/monitor_metric.js' %}"></script>
+{% endblock %}

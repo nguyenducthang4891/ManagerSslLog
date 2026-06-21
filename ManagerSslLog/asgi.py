@@ -1,16 +1,32 @@
-"""
-ASGI config for ManagerSslLog project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
-"""
-
 import os
+from pathlib import Path
 
 from django.core.asgi import get_asgi_application
+from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
+import environ
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ManagerSslLog.settings')
+# 1. Xác định đường dẫn thư mục gốc dự án (D:\Programming\ManagerSslLog)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-application = get_asgi_application()
+# 2. Load file .env
+env = environ.Env()
+environ.Env.read_env(env_file=str(BASE_DIR / '.env'))
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.getenv('DJANGO_SETTINGS_MODULE', 'ManagerSslLog.settings.local'))
+
+# Khởi tạo ứng dụng ASGI và bọc static
+django_asgi_app = ASGIStaticFilesHandler(get_asgi_application())
+
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.auth import AuthMiddlewareStack
+from channels.security.websocket import AllowedHostsOriginValidator # 🌟 Thêm bộ kiểm tra bảo mật Host chống nghẽn
+import apps.monitor.routing
+
+application = ProtocolTypeRouter({
+    "http": django_asgi_app,
+    "websocket": AllowedHostsOriginValidator(  # 🌟 Bọc thêm lớp bảo vệ chống nghẽn gói handshake
+        AuthMiddlewareStack(
+            URLRouter(apps.monitor.routing.websocket_urlpatterns)
+        )
+    ),
+})

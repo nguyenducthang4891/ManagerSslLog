@@ -1,10 +1,14 @@
 import os
 from pathlib import Path
 
-# Cập nhật thêm một lần .parent vì file này nằm sâu hơn 1 cấp (chui vào thư mục settings/)
+import environ
+
+# 1. Xác định đường dẫn thư mục gốc dự án (D:\Programming\ManagerSslLog)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-
+# 2. Load file .env
+env = environ.Env()
+environ.Env.read_env(env_file=str(BASE_DIR / '.env'))
 # Cấu hình bảo mật cơ bản
 SECRET_KEY = 'django-insecure-rz+sal&v_jj$v0k#ccz-0!109@%)q26@+94f3er&^q&%+hf%ef'
 FIELD_ENCRYPTION_KEY = os.environ.get(
@@ -13,21 +17,24 @@ FIELD_ENCRYPTION_KEY = os.environ.get(
 )
 # Định nghĩa các App hệ thống và App nội bộ
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',  # Thêm admin vào nếu bạn cần dùng giao diện admin mặc định
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
+    'channels',
     # Các module core nằm trong apps/
     'apps.tenants',
     'apps.core_networks',
     'apps.ssl_manager',
+    'apps.monitor'
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -35,6 +42,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+WHITENOISE_USE_FINDERS = True
 
 ROOT_URLCONF = 'ManagerSslLog.urls'
 
@@ -74,9 +83,8 @@ STATIC_ROOT = BASE_DIR / 'static_root'
 STATIC_URL = '/static/'
 
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static')
+    BASE_DIR / 'static'
 ]
-
 # Cấu hình lưu trữ File (Nơi chứa file certificates)
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'storage' / 'media'
