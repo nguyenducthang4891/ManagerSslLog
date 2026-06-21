@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Cấu hình Tổ chức{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="h4 fw-bold text-dark mb-0">Cấu hình Tổ chức (Tenants)</h2>
+        <p class="text-muted small mb-0">Phân không gian độc lập, cô lập và bảo mật dữ liệu khách hàng.</p>
+    </div>
+    <button id="btn-open-add-tenant" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Khởi tạo Tenant mới
+    </button>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3" style="width: 10%;">ID</th>
+                    <th>Tên Tổ chức / Doanh nghiệp</th>
+                    <th>Mã định danh (Code)</th>
+                    <th>Ngày tạo lập</th>
+                    <th>Trạng thái</th>
+                    <th class="text-center pe-3" style="width: 25%;">Hành động</th>
+                </tr>
+            </thead>
+            <tbody id="tenant-table-body">
+                {% for t in tenants %}
+                <tr>
+                    <td class="ps-3 font-monospace text-muted">#{{ t.id }}</td>
+                    <td class="fw-semibold text-dark">{{ t.name }}</td>
+                    <td><span class="badge text-bg-light border font-monospace">{{ t.code }}</span></td>
+                    <td class="text-muted small">{{ t.created_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        {% if t.is_active %}
+                        <span class="badge rounded-pill text-bg-success">Kích hoạt</span>
+                        {% else %}
+                        <span class="badge rounded-pill text-bg-danger">Khóa</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center pe-3">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-indigo btn-assign-trigger"
+                                    data-id="{{ t.id }}"
+                                    data-name="{{ t.name }}"
+                                    title="Gán quyền Admin">
+                                <i class="bi bi-person-plus"></i> Gán Admin
+                            </button>
+                            <button class="btn btn-outline-primary btn-edit-trigger"
+                                    data-id="{{ t.id }}"
+                                    data-name="{{ t.name }}"
+                                    data-active="{{ t.is_active|yesno:'true,false' }}"
+                                    title="Sửa">
+                                <i class="bi bi-pencil"></i> Sửa
+                            </button>
+                            <button class="btn btn-outline-danger btn-delete-trigger"
+                                    data-id="{{ t.id }}"
+                                    title="Xóa hoàn toàn">
+                                <i class="bi bi-trash"></i> Xóa
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="text-center text-muted py-4">Hệ thống chưa thiết lập Tenant nào.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="tenant-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="tenant-modal-title" class="modal-title">Khởi tạo Không gian Tenant</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="tenant-form">
+                <div class="modal-body">
+                    <input type="hidden" id="t_id">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Tên Tổ chức doanh nghiệp</label>
+                        <input type="text" id="t_name" placeholder="Ví dụ: Sở Thông Tin Truyền Thông" required class="form-control">
+                    </div>
+                    <div class="mb-3" id="code-container">
+                        <label class="form-label small fw-semibold">Mã định danh viết liền (Không được trùng)</label>
+                        <input type="text" id="t_code" placeholder="Ví dụ: SOTTTT" class="form-control font-monospace text-uppercase">
+                    </div>
+                    <div class="mb-1 d-none" id="status-container">
+                        <label class="form-label small fw-semibold">Trạng thái vận hành</label>
+                        <select id="t_active" class="form-select">
+                            <option value="true">Kích hoạt hoạt động</option>
+                            <option value="false">Tạm ngưng/Khóa</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-primary">Xác nhận</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="assign-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Chỉ định Quyền Admin quản lý</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="assign-form">
+                <div class="modal-body">
+                    <input type="hidden" id="assign_t_id">
+                    <p class="small text-muted mb-3">Chọn một người dùng bất kỳ để nâng cấp thành Admin của Tổ chức: <span id="assign-tenant-name" class="fw-bold text-primary"></span></p>
+                    <div class="mb-1">
+                        <label class="form-label small fw-semibold">Danh sách tài khoản khả dụng</label>
+                        <select id="assign_user_id" required class="form-select font-monospace small">
+                            <option value="">-- Chọn tài khoản người dùng --</option>
+                            {% for u in unassigned_users %}
+                            <option value="{{ u.id }}">{{ u.email }} ({% if u.tenant %}Thuộc: {{ u.tenant.name }}{% else %}Tự do{% endif %})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-success">Gán quyền</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.TENANT_URLS = {
+        apiAddTenant: "{% url 'api_add_tenant' %}",
+        apiAssignAdmin: "{% url 'api_assign_tenant_admin' %}"
+    };
+</script>
+<script src="{% static 'js/tenant_list.js' %}"></script>
+{% endblock %}

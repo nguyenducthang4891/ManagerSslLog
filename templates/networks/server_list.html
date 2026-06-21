@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Cụm máy chủ Zimbra{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="h4 fw-bold text-dark mb-0">Danh sách Cụm máy chủ Zimbra</h2>
+    {% if request.user.is_superuser %}
+    <button id="btn-open-add-modal" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Thêm máy chủ hạ tầng
+    </button>
+    {% endif %}
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Tên Server</th>
+                    <th>Địa chỉ IP/Host</th>
+                    <th>Zimbra Admin Email</th>
+                    <th>Loại hình</th>
+                    <th class="text-center">Hạ tầng (SSH)</th>
+                    <th class="text-center">Ứng dụng (SOAP)</th>
+                    <th class="text-center pe-3">Hành động</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for server in servers %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ server.name }}</td>
+                    <td class="font-monospace small">{{ server.hostname }}</td>
+                    <td class="text-muted small">{{ server.zimbra_admin_email }}</td>
+                    <td>
+                        {% if server.tenant %}
+                        <span class="badge text-bg-light border">Dedicated</span>
+                        {% else %}
+                        <span class="badge text-bg-primary-subtle text-primary-emphasis">Shared</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <button id="btn-ssh-{{ server.id }}" data-id="{{ server.id }}" class="btn btn-dark btn-sm btn-check-ssh-trigger">
+                            <span id="text-ssh-{{ server.id }}">Check SSH</span>
+                        </button>
+                    </td>
+                    <td class="text-center">
+                        <button id="btn-soap-{{ server.id }}" data-id="{{ server.id }}" class="btn btn-primary btn-sm btn-check-soap-trigger">
+                            <span id="text-soap-{{ server.id }}">Check SOAP</span>
+                        </button>
+                    </td>
+                    <td class="text-center pe-3">
+                        {% if request.user.is_superuser %}
+                        <button class="btn btn-outline-primary btn-sm btn-edit-server-trigger"
+                                data-id="{{ server.id }}"
+                                data-name="{{ server.name }}"
+                                data-host="{{ server.hostname }}"
+                                data-port="{{ server.port }}"
+                                data-user="{{ server.username }}"
+                                data-email="{{ server.zimbra_admin_email }}"
+                                title="Sửa">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        {% else %}--{% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="7" class="text-center text-muted py-4">Chưa có máy chủ hạ tầng nào.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="server-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="modal-title" class="modal-title">Khai báo Server Hạ tầng</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="server-form">
+                <div class="modal-body">
+                    <input type="hidden" id="srv_id">
+
+                    <h6 class="text-uppercase text-muted small fw-bold mb-3">1. Cấu hình hệ điều hành (SSH)</h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Tên Server</label>
+                            <input type="text" id="srv_name" required class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Hostname / IP</label>
+                            <input type="text" id="srv_host" required class="form-control">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">Cổng SSH</label>
+                            <input type="number" id="srv_port" value="22" required class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">SSH Username</label>
+                            <input type="text" id="srv_user" value="root" required class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">SSH Mật khẩu</label>
+                            <input type="password" id="srv_pwd" placeholder="Bỏ trống nếu giữ cũ" class="form-control">
+                        </div>
+                    </div>
+
+                    <h6 class="text-uppercase text-muted small fw-bold mb-3 border-top pt-3">2. Tài khoản quản trị Zimbra SOAP</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Zimbra Admin Email</label>
+                            <input type="email" id="srv_admin_email" required class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold">Mật khẩu ứng dụng Admin</label>
+                            <input type="password" id="srv_admin_pwd" placeholder="Bỏ trống nếu giữ cũ" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" id="btn-save-server" class="btn btn-primary">Lưu lại</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.SERVER_URLS = {
+        apiAddServer: "{% url 'api_add_server' %}"
+    };
+</script>
+<script src="{% static 'js/server_list.js' %}"></script>
+{% endblock %}

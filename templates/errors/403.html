@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Từ chối truy cập (403)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col items-center justify-center p-4">
+    <div class="text-center max-w-sm bg-white p-8 rounded-lg shadow-md border-t-4 border-red-500">
+        <h1 class="text-6xl font-black text-red-500 mb-2">403</h1>
+        <h3 class="text-xl font-bold text-gray-800 mb-4">Truy cập bị từ chối!</h3>
+        <p class="text-gray-600 text-sm mb-6">{{ error|default:"Bạn không có quyền hạn hợp lệ để thực thi hoặc xem tài nguyên này." }}</p>
+        <a href="{% url 'dashboard' %}" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2 px-6 rounded text-sm shadow">
+            Quay lại Dashboard
+        </a>
+    </div>
+</body>
+</html>

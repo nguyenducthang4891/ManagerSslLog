@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Tên miền{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="h4 fw-bold text-dark mb-0">Quản lý Tên miền (Domains)</h2>
+        <p class="text-muted small mb-0">Khai báo, điều phối phân bố domain về các không gian Tenant biệt lập.</p>
+    </div>
+    <button id="btn-open-add-modal" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Khai báo Domain mới
+    </button>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Tên miền</th>
+                    <th>Tổ chức sở hữu (Tenant)</th>
+                    <th>Máy chủ vật lý đang chạy</th>
+                    <th>Trạng thái</th>
+                    <th class="text-center pe-3">Hành động</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for domain in domains %}
+                <tr>
+                    <td class="ps-3 fw-semibold text-primary">{{ domain.name }}</td>
+                    <td>
+                        {% if domain.tenant %}
+                        <span class="badge text-bg-light border"><i class="bi bi-building me-1"></i>{{ domain.tenant.name }}</span>
+                        {% else %}
+                        <span class="badge text-bg-light border border-dashed text-muted">Tự do (Chưa gán)</span>
+                        {% endif %}
+                    </td>
+                    <td class="font-monospace small">{{ domain.server.name }} ({{ domain.server.hostname }})</td>
+                    <td>
+                        {% if domain.is_active %}
+                        <span class="badge rounded-pill text-bg-success">Hoạt động</span>
+                        {% else %}
+                        <span class="badge rounded-pill text-bg-danger">Tạm ngưng</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center pe-3">
+                        <div class="btn-group btn-group-sm">
+                            {% if request.user.is_superuser %}
+                            <button class="btn btn-outline-secondary btn-assign-tenant-trigger"
+                                    data-id="{{ domain.id }}"
+                                    data-name="{{ domain.name }}"
+                                    data-tenant="{{ domain.tenant.id|default:'' }}"
+                                    title="Điều phối Tenant">
+                                <i class="bi bi-arrow-left-right"></i>
+                            </button>
+                            {% endif %}
+                            <button class="btn btn-outline-primary btn-edit-domain-trigger"
+                                    data-id="{{ domain.id }}"
+                                    data-name="{{ domain.name }}"
+                                    data-server="{{ domain.server.id }}"
+                                    title="Đổi Server">
+                                <i class="bi bi-hdd-network"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-delete-domain-trigger"
+                                    data-id="{{ domain.id }}"
+                                    data-name="{{ domain.name }}"
+                                    title="Xóa">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="text-center text-muted py-4">Chưa có hệ thống tên miền nào được cấu hình.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="domain-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 id="dom-modal-title" class="modal-title">Khai báo Domain tổ chức</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="domain-form">
+                <div class="modal-body">
+                    <input type="hidden" id="dom_id">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Tên miền (mail.company.com)</label>
+                        <input type="text" id="dom_name" placeholder="mail.yourdomain.com" required class="form-control">
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label fw-semibold small">Chọn Mail Server điều phối hạ tầng</label>
+                        <select id="dom_server" required class="form-select">
+                            <option value="">-- Chọn máy chủ phụ trách --</option>
+                            {% for server in servers %}
+                            <option value="{{ server.id }}">{{ server.name }} ({{ server.hostname }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-text">Khi đổi server, hệ thống sẽ tự kiểm tra và tạo domain trên Zimbra server mới nếu chưa tồn tại.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" id="btn-save-domain" class="btn btn-primary">Xác nhận</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if request.user.is_superuser %}
+<div id="assign-tenant-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Điều phối quyền sở hữu Domain</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="assign-tenant-form">
+                <div class="modal-body">
+                    <input type="hidden" id="assign_dom_id">
+                    <p class="small text-muted">Gán tên miền <span id="assign-dom-name" class="fw-bold text-primary"></span> vào không gian lưu trữ của Tenant độc lập.</p>
+                    <label class="form-label fw-semibold small">Chọn Tổ chức (Tenant) nhận bàn giao</label>
+                    <select id="assign_tenant_id" class="form-select">
+                        <option value="">-- Để trống (Giải phóng domain về trạng thái Tự Do) --</option>
+                        {% for t in tenants %}
+                        <option value="{{ t.id }}">{{ t.name }} ({{ t.code }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <button type="button" id="btn-quick-detach" class="btn btn-link text-danger btn-sm">
+                        Gỡ bỏ Tenant hiện tại ngay
+                    </button>
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Xác nhận Lưu</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.DOMAIN_URLS = {
+        apiAddDomain: "{% url 'api_add_domain' %}",
+        apiAssignTenant: "{% url 'api_assign_domain_tenant' %}"
+    };
+</script>
+<script src="{% static 'js/domain_list.js' %}"></script>
+{% endblock %}

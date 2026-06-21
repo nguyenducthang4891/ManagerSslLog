@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}SSL Manager Portal{% endblock %}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+    <script src="{% static 'js/common.js' %}" defer></script>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-expand-lg navbar-dark shadow-sm" style="background-color:#4f46e5;">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand fw-bold" href="{% url 'dashboard' %}">
+            <i class="bi bi-shield-lock-fill me-1"></i> Zimbra SSL SaaS
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="mainNavbar">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active fw-bold{% endif %}" href="{% url 'dashboard' %}">
+                        <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                    </a>
+                </li>
+
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'domain_list' or request.resolver_match.url_name == 'server_list' %}active fw-bold{% endif %}" href="#" id="navInfra" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-hdd-network me-1"></i>Hạ tầng
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="navInfra">
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'domain_list' %}active{% endif %}" href="{% url 'domain_list' %}"><i class="bi bi-globe2 me-2"></i>Tên miền</a></li>
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'server_list' %}active{% endif %}" href="{% url 'server_list' %}"><i class="bi bi-server me-2"></i>Cụm máy chủ Zimbra</a></li>
+                    </ul>
+                </li>
+
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'cert_list' %}active fw-bold{% endif %}" href="#" id="navSsl" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-patch-check me-1"></i>Bảo mật SSL
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="navSsl">
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'cert_list' %}active{% endif %}" href="{% url 'cert_list' %}"><i class="bi bi-file-earmark-lock2 me-2"></i>Kho chứng chỉ</a></li>
+                    </ul>
+                </li>
+
+                {% if request.user.role == 'tenant_admin' or request.user.is_superuser %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'user_list' or request.resolver_match.url_name == 'tenant_list' %}active fw-bold{% endif %}" href="#" id="navAdmin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-people me-1"></i>Quản trị
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="navAdmin">
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'user_list' %}active{% endif %}" href="{% url 'user_list' %}"><i class="bi bi-person-badge me-2"></i>Nhân viên</a></li>
+                        {% if request.user.is_superuser %}
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'tenant_list' %}active{% endif %}" href="{% url 'tenant_list' %}"><i class="bi bi-building me-2"></i>Tổ chức (Tenants)</a></li>
+                        {% endif %}
+                    </ul>
+                </li>
+                {% endif %}
+            </ul>
+
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navUser" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle me-1"></i>{{ request.user.email }}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navUser">
+                        <li><span class="dropdown-item-text text-muted small">
+                            {% if request.user.is_superuser %}Superadmin hệ thống
+                            {% elif request.user.role == 'tenant_admin' %}Tenant Admin
+                            {% else %}Nhân viên{% endif %}
+                        </span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <form action="{% url 'logout' %}" method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="dropdown-item text-danger w-100 bg-transparent border-0 align-items-center">
+                                    <i class="bi bi-box-arrow-right me-2"></i>Đăng xuất
+                                </button>
+                            </form>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 mt-4">
+    {% block content %}{% endblock %}
+</div>
+
+<div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

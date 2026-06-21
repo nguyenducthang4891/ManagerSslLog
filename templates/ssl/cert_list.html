@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Kho chứng chỉ SSL{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="h4 fw-bold text-dark mb-0">Kho lưu trữ chứng chỉ SSL</h2>
+    <button id="btn-open-upload-modal" class="btn btn-success">
+        <i class="bi bi-cloud-upload me-1"></i>Upload chứng chỉ mới
+    </button>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Tên chứng chỉ</th>
+                    <th>Áp dụng cho Domain</th>
+                    <th>Nhà phát hành (Issuer)</th>
+                    <th>Ngày hết hạn</th>
+                    <th>Trạng thái</th>
+                    <th class="pe-3 text-center">Thao tác</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cert in certs %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ cert.name }}</td>
+                    <td class="text-primary font-monospace small">{{ cert.domain.name }}</td>
+                    <td class="text-muted small">{{ cert.issuer }}</td>
+                    <td class="font-monospace small">{{ cert.valid_to|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <span class="badge rounded-pill
+                            {% if cert.status == 'deployed' %}text-bg-success
+                            {% elif cert.status == 'deploying' %}text-bg-warning
+                            {% elif cert.status == 'failed' %}text-bg-danger
+                            {% else %}text-bg-primary{% endif %}">
+                            {{ cert.get_status_display }}
+                        </span>
+                    </td>
+                    <td class="pe-3 text-center">
+                        <a href="{% url 'cert_detail' cert.id %}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-terminal me-1"></i>Bảng Deploy & Logs
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="text-center text-muted py-4">Chưa tải lên chứng chỉ SSL nào.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="ssl-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Tải lên bộ chứng chỉ SSL</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="ssl-form" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Tên gợi nhớ bộ chứng chỉ</label>
+                        <input type="text" id="ssl_name" required class="form-control" placeholder="Ví dụ: Wildcard VNPT 2026">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Áp dụng cho Tên miền</label>
+                        <select id="ssl_domain" required class="form-select">
+                            <option value="">-- Chọn tên miền đích áp dụng --</option>
+                            {% for domain in domains %}
+                            <option value="{{ domain.id }}">{{ domain.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">1. Server Certificate (.crt)</label>
+                            <input type="file" id="f_server" required class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">2. Private Key (.key)</label>
+                            <input type="file" id="f_key" required class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">3. Intermediate Certificate</label>
+                            <input type="file" id="f_inter" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">4. Root Certificate</label>
+                            <input type="file" id="f_root" required class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-success">Xác thực & Lưu</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.CERT_URLS = {
+        apiUploadCert: "{% url 'api_upload_cert' %}"
+    };
+</script>
+<script src="{% static 'js/cert_list.js' %}"></script>
+{% endblock %}
