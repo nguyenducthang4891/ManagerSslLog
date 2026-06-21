@@ -1,25 +1,21 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 
+from channels.db import database_sync_to_async
+
 
 class MonitorMetricConsumer(AsyncWebsocketConsumer):
-
     async def connect(self):
-        self.group_name = "monitor_metrics_group"
-
-        # Kiểm tra quyền đăng nhập qua Session mã nguồn Django
-        if self.scope["user"].is_authenticated:
-            # Tham gia vào nhóm nhận tin
-            await self.channel_layer.group_add(self.group_name, self.channel_name)
-            await self.accept()
-        else:
-            await self.close()
+        self.room_group_name = "group_monitor_metrics"
+        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        await self.accept()
 
     async def disconnect(self, close_code):
-        if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
-    # Hàm xử lý khi có tín hiệu gửi từ Celery Worker / Script quét dữ liệu
-    async def send_metrics_update(self, event):
-        # Đẩy trực tiếp JSON thô xuống trình duyệt Client
-        await self.send(text_data=json.dumps(event["data"]))
+    # Hàm này lắng nghe tin nhắn từ Celery Beat gửi vào Group qua Channel Layer
+    async def send_metrics(self, event):
+        # Lấy dữ liệu metric ra
+        data = event["data"]
+        # Đẩy trực tiếp xuống trình duyệt (Không lo bị block luồng)
+        await self.send(text_data=json.dumps(data))

@@ -19,7 +19,7 @@ def broadcast_monitor_metrics():
 
     # Lấy đại diện 1 tài khoản Superuser hoặc Admin hệ thống để bẻ khóa phân quyền
     # Vì Celery chạy ngầm ở Background không có HTTP request.user
-    admin_user = User.objects.filter(is_superuser=True).first()
+    admin_user = User.objects.get(email='ssladmin@cantho.gov.vn')
     if not admin_user:
         return "Không tìm thấy tài khoản admin hệ thống để thực hiện query."
 
@@ -29,9 +29,9 @@ def broadcast_monitor_metrics():
 
         # Đồng bộ luồng Sync (Celery) sang Async (Channels WebSocket)
         async_to_sync(channel_layer.group_send)(
-            "monitor_metrics_group",  # Tên group trùng vớiconsumers.py
+            "group_monitor_metrics",  # Tên group trùng vớiconsumers.py
             {
-                "type": "send_metrics_update",  # Hàm xử lý trong consumers.py
+                "type": "send_metrics",  # Hàm xử lý trong consumers.py
                 "data": data
             }
         )

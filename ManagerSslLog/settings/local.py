@@ -70,7 +70,7 @@ from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     'broadcast-monitor-metrics-every-3-seconds': {
-        'task': 'apps.monitor.tasks.broadcast_monitor_metrics',
-        'schedule': 3.0, # Chạy định kỳ mỗi 3 giây
+        'task': 'apps.monitor.tasks.metric.broadcast_monitor_metrics',
+        'schedule': 5.0, # Chạy định kỳ mỗi 3 giây
     },
 }
