@@ -12,8 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env()
 environ.Env.read_env(env_file=str(BASE_DIR / '.env'))
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.getenv('DJANGO_SETTINGS_MODULE', 'ManagerSslLog.settings.local'))
-
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', env.str('DJANGO_SETTINGS_MODULE'))
 # Khởi tạo ứng dụng ASGI và bọc static
 django_asgi_app = ASGIStaticFilesHandler(get_asgi_application())
 

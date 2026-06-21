@@ -9,3 +9,5 @@ env/
 *.pid
 storage/media/certificates/*
 celertbeat*
+.env
+static_root/

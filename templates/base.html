@@ -28,11 +28,6 @@
 
         <div class="collapse navbar-collapse" id="mainNavbar">
             <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                <li class="nav-item">
-                    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active fw-bold{% endif %}" href="{% url 'dashboard' %}">
-                        <i class="bi bi-speedometer2 me-1"></i>Dashboard
-                    </a>
-                </li>
 
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'domain_list' or request.resolver_match.url_name == 'server_list' %}active fw-bold{% endif %}" href="#" id="navInfra" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -60,7 +55,7 @@
                     <ul class="dropdown-menu" aria-labelledby="navMonitoring">
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_metric' %}active{% endif %}" href="{% url 'monitor_metric' %}"><i class="bi bi-speedometer me-2"></i>Bảng giám sát</a></li>
                         {% if request.user.is_superuser or request.user.role == 'tenant_admin' %}
-                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitoring_config_list' %}active{% endif %}" href="{% url 'monitor_config_list' %}"><i class="bi bi-gear me-2"></i>Cấu hình</a></li>
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_config_list' %}active{% endif %}" href="{% url 'monitor_config_list' %}"><i class="bi bi-gear me-2"></i>Cấu hình</a></li>
                         {% endif %}
                     </ul>
                 </li>

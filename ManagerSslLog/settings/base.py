@@ -18,13 +18,14 @@ FIELD_ENCRYPTION_KEY = os.environ.get(
 # Định nghĩa các App hệ thống và App nội bộ
 INSTALLED_APPS = [
     'daphne',
+    'channels',
     'django.contrib.admin',  # Thêm admin vào nếu bạn cần dùng giao diện admin mặc định
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'channels',
+
     # Các module core nằm trong apps/
     'apps.tenants',
     'apps.core_networks',
@@ -34,7 +35,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -44,6 +45,9 @@ MIDDLEWARE = [
 ]
 
 WHITENOISE_USE_FINDERS = True
+import mimetypes
+mimetypes.add_type("application/javascript", ".js", True)
+mimetypes.add_type("text/css", ".css", True)
 
 ROOT_URLCONF = 'ManagerSslLog.urls'
 
