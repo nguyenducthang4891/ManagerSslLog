@@ -1,5 +1,5 @@
 from django.urls import path
-from apps.monitor.views import views_metric, config
+from apps.monitor.views import views_metric, config, views_audit
 
 urlpatterns = [
     # Template Views (Giao diện hiển thị)
@@ -34,4 +34,13 @@ urlpatterns = [
     path('api/elk-config/<int:config_id>/delete/', config.api_delete_elk_config, name='api_delete_elk_config'),
     path('api/threshold/upsert/', config.api_upsert_threshold, name='api_upsert_threshold'),
     path('api/threshold/<int:threshold_id>/delete/', config.api_delete_threshold, name='api_delete_threshold'),
+]
+
+urlpatterns += [
+    path('audit/', views_audit.audit_list, name='monitor_audit_list'),
+    path('api/audit/', views_audit.api_query_audit, name='api_query_audit'),
+    # Lấy 1 document audit đầy đủ theo _id -- dùng cho modal "xem log gốc".
+    # tenant_id trong path giống pattern host_logs, validate quyền tương tự.
+    path('api/tenant/<int:tenant_id>/audit/<str:doc_id>/',
+         views_audit.api_audit_log_detail, name='api_audit_log_detail'),
 ]

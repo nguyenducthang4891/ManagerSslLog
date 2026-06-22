@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Nhật ký hành động (Audit Log){% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold mb-0"><i class="bi bi-journal-text me-2"></i>Nhật ký hành động quản trị</h4>
+        <small class="text-muted">Theo dõi đăng nhập, tạo/sửa/xóa tài khoản, đổi mật khẩu và các thao tác quản trị Zimbra</small>
+    </div>
+    <button class="btn btn-primary btn-sm shadow-sm" id="btnRefreshAudit">
+        <i class="bi bi-arrow-clockwise me-1"></i>Làm mới
+    </button>
+</div>
+
+{% if request.user.is_superuser %}
+<div class="card border-0 shadow-sm mb-4 bg-light">
+    <div class="card-body py-3">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-1">
+                <label class="form-label small fw-bold text-muted mb-0">Tổ chức</label>
+            </div>
+            <div class="col-md-5">
+                <select class="form-select form-select-sm" id="selectAuditTenant">
+                    <option value="">-- Chọn tổ chức cần xem --</option>
+                    {% for t in tenant_list %}
+                    <option value="{{ t.id }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <form id="auditFilterForm" class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-muted">Loại thời gian</label>
+                <select class="form-select form-select-sm" id="auditRangeType">
+                    <option value="hours" selected>Theo giờ</option>
+                    <option value="days">Theo ngày</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-muted">Số giờ</label>
+                <input type="number" class="form-control form-control-sm font-monospace" id="auditRangeValue" value="24" min="1">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-muted">Phân loại hành động</label>
+                <select class="form-select form-select-sm" id="auditActionCategory">
+                    <option value="">-- Tất cả phân loại --</option>
+                    {% for value, label in action_category_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-muted">Tìm theo Email (người thực hiện)</label>
+                <input type="text" class="form-control form-control-sm" id="auditKeyword" placeholder="ví dụ: ssladmin@cantho.gov.vn">
+            </div>
+            <div class="col-md-1 text-end">
+                <button type="submit" class="btn btn-dark btn-sm w-100"><i class="bi bi-search"></i></button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small">
+                    <tr>
+                        <th class="ps-3">Thời gian</th>
+                        <th>Người thực hiện</th>
+                        <th>Hành động</th>
+                        <th>Phân loại</th>
+                        <th>Đối tượng</th>
+                        <th>IP nguồn</th>
+                        <th>Trạng thái</th>
+                        <th class="text-end pe-3">Chi tiết</th>
+                    </tr>
+                </thead>
+                <tbody id="auditTableBody">
+                    <tr><td colspan="8" class="text-center text-muted py-4">Đang tải dữ liệu...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal hiển thị log gốc (nguyên văn message) -->
+<div class="modal fade" id="modalAuditOriginLog" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-bold"><i class="bi bi-file-text me-2"></i>Nhật ký gốc (Original Log)</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="auditOriginLogMeta" class="small text-muted mb-3"></div>
+                <pre id="auditOriginLogContent" class="bg-light p-3 rounded small" style="white-space: pre-wrap; word-break: break-word;">Đang tải...</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.MONITOR_IS_SUPERUSER = {{ request.user.is_superuser|yesno:"true,false" }};
+    window.MONITOR_USER_TENANT_ID = {{ request.user.tenant_id|default_if_none:"null" }};
+</script>
+<script src="{% static 'js/monitor_audit.js' %}"></script>
+{% endblock %}
