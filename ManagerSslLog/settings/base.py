@@ -25,7 +25,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
+    'django_celery_beat',
     # Các module core nằm trong apps/
     'apps.tenants',
     'apps.core_networks',
@@ -46,6 +46,7 @@ MIDDLEWARE = [
 
 WHITENOISE_USE_FINDERS = True
 import mimetypes
+
 mimetypes.add_type("application/javascript", ".js", True)
 mimetypes.add_type("text/css", ".css", True)
 
