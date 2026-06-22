@@ -8,6 +8,6 @@ env/
 .idea/
 *.pid
 storage/media/certificates/*
-celertbeat*
+celerybeat*
 .env
 static_root/
