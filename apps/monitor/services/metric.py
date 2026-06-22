@@ -78,9 +78,14 @@ class MetricService:
         since, now = resolve_time_range(hours, days)
         filter_ = base_filter(effective_tenant, user.is_superuser, since, now)
         if hostname:
-            # FIX: dùng .keyword vì mapping thật của field "hostname" trên ES
-            # là kiểu "text" (xem ghi chú chi tiết trong base_filter() ở base.py).
-            filter_.append({"term": {"hostname.keyword": hostname}})
+            # FIX: chuẩn hoá lowercase trước khi term-match trên
+            # "hostname.keyword". Term query không tokenize, nên khớp
+            # TUYỆT ĐỐI theo giá trị gốc đã index -- nếu user gõ hoa/thường
+            # khác với giá trị lưu trong ES (luôn lowercase, theo agent),
+            # query sẽ trả về rỗng dù dữ liệu thực sự tồn tại. Lowercase ở
+            # đây khớp với cách agent ghi field "hostname" (xem sample log
+            # gốc: "hostname": "ldap.cantho.gov.vn" -- luôn lowercase).
+            filter_.append({"term": {"hostname.keyword": hostname.strip().lower()}})
 
         hits = run_search(client, INDEX_PATTERN, {"bool": {"filter": filter_}},
                            cluster.name, size=page_size)

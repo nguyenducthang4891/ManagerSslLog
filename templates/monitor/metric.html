@@ -38,6 +38,33 @@
     </div>
 </div>
 
+{% if request.user.is_superuser %}
+<div class="card border-0 shadow-sm mb-4 bg-light">
+    <div class="card-body py-3">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-1">
+                <label class="form-label small fw-bold text-muted mb-0">Tổ chức</label>
+            </div>
+            <div class="col-md-5">
+                <!--
+                    Superuser PHẢI chọn 1 Tenant cụ thể mới được xem dữ liệu
+                    giám sát -- theo đúng yêu cầu nghiệp vụ (không hiển thị
+                    metric tổng hợp toàn hệ thống mặc định cho superuser).
+                    Nếu trang đã có select2 khởi tạo sẵn ở nơi khác, chỉ cần
+                    đảm bảo sự kiện 'change' gọi window.onTenantSelected().
+                -->
+                <select class="form-select form-select-sm select2-tenant" id="selectMonitorTenant">
+                    <option value="">-- Chọn tổ chức cần xem --</option>
+                    {% for t in tenant_list %}
+                    <option value="{{ t.id }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card border-0 shadow-sm bg-success text-white">
@@ -122,6 +149,8 @@
                         <th>CPU</th>
                         <th>RAM</th>
                         <th>Disk sử dụng</th>
+                        <th>RX</th>
+                        <th>TX</th>
                         <th>Mail Queue</th>
                         <th>Sự cố Zimbra Service</th>
                         <th>Mức độ</th>
@@ -138,5 +167,28 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+    // PHẢI gán trước khi monitor_metric.js chạy DOMContentLoaded, nên đặt
+    // ngay trong block extra_js, trước thẻ <script src="monitor_metric.js">.
+    window.MONITOR_IS_SUPERUSER = {{ request.user.is_superuser|yesno:"true,false" }};
+    window.MONITOR_TENANT_ID = null; // Superuser: chưa chọn gì khi tải trang lần đầu.
+    // Tenant CỐ ĐỊNH của user hiện tại (None với superuser) -- dùng để build
+    // link sang trang chi tiết host (/monitor/tenant/<id>/host/.../detail/).
+    window.MONITOR_USER_TENANT_ID = {{ request.user.tenant_id|default_if_none:"null" }};
+</script>
 <script src="{% static 'js/monitor_metric.js' %}"></script>
+
+{% if request.user.is_superuser %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const select = document.getElementById('selectMonitorTenant');
+        if (select) {
+            select.addEventListener('change', () => {
+                const tenantId = select.value ? parseInt(select.value, 10) : null;
+                window.onTenantSelected(tenantId);
+            });
+        }
+    });
+</script>
+{% endif %}
 {% endblock %}

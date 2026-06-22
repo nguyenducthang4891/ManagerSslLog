@@ -46,11 +46,12 @@ CACHES = {
 # =========================================================================
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'BACKEND': 'channels_redis.pubsub.RedisPubSubChannelLayer',
         'CONFIG': {
-            "hosts": [f"redis://default:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/3"] ,
+            "hosts": [f"redis://default:{REDIS_PASSWORD}@{REDIS_HOST}:6380/3"] ,
             "capacity": 1500,
-            "expiry": 10,
+            "expiry": 60,
+            "symmetric_encryption_keys": None,
         },
     },
 }

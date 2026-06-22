@@ -1,141 +1,286 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Giám sát hạ tầng{% endblock %}
-
-{% block extra_css %}
-<style>
-    .severity-badge-critical { background-color: #dc3545; color: white; }
-    .severity-badge-warning  { background-color: #fd7e14; color: white; }
-    .severity-badge-ok       { background-color: #198754; color: white; }
-    .card-critical { border-left: 4px solid #dc3545 !important; }
-    .card-warning { border-left: 4px solid #fd7e14 !important; }
-    .card-ok { border-left: 4px solid #198754 !important; }
-    .progress { height: 6px; border-radius: 3px; }
-</style>
-{% endblock %}
+{% block title %}Cấu hình Giám sát - SSL Manager Portal{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Giám sát hạ tầng</h4>
-        <small class="text-muted" id="elkClusterLabel">Đang kết nối cụm ELK...</small>
-    </div>
-
-    <div class="d-flex gap-2">
-        <div class="btn-group shadow-sm" role="group">
-            <button type="button" class="btn btn-outline-primary active" id="btn-view-grid" onclick="switchView('grid')">
-                <i class="bi bi-grid-3x3-gap-fill me-1"></i>Dạng Thẻ
+<div class="row">
+    <div class="col-12 d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold text-dark"><i class="bi bi-gear-fill me-2 text-indigo"></i>Cấu hình Giám sát</h2>
+            <p class="text-muted mb-0">Quản lý kết nối hạ tầng Elasticsearch và thiết lập ngưỡng cảnh báo hệ thống.</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if request.user.is_superuser %}
+            <button class="btn btn-primary" onclick="toggleModal('modalAddElkConfig', true)">
+                <i class="bi bi-plus-circle me-1"></i> Thêm cụm ELK
             </button>
-            <button type="button" class="btn btn-outline-primary" id="btn-view-table" onclick="switchView('table')">
-                <i class="bi bi-list-task me-1"></i>Dạng Bảng
+            {% endif %}
+            <button class="btn btn-outline-primary" onclick="toggleModal('modalUpsertThreshold', true)">
+                <i class="bi bi-bell-plus me-1"></i> Tùy biến ngưỡng cảnh báo
             </button>
         </div>
-        <button class="btn btn-primary shadow-sm" id="btnRefresh">
-            <i class="bi bi-arrow-clockwise me-1"></i>Làm mới (<span id="countdown">12</span>s)
-        </button>
     </div>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm bg-success text-white p-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1 text-white-50">Hệ thống An toàn (OK)</h6>
-                    <h3 class="fw-bold mb-0" id="summary-ok">0</h3>
+<div class="row g-4">
+    {% if request.user.is_superuser %}
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-bottom">
+                <h5 class="card-title mb-0 fw-bold text-primary"><i class="bi bi-server me-2"></i>Danh sách kết nối cụm ELK</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="px-4">Tên cụm</th>
+                                <th>Danh sách Hosts</th>
+                                <th>Tài khoản</th>
+                                <th>Phạm vi</th>
+                                <th class="text-end px-4">Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if elk_configs %}
+                                {% for config in elk_configs %}
+                                <tr>
+                                    <td class="px-4 fw-semibold">{{ config.name }}</td>
+                                    <td><code>{{ config.hosts }}</code></td>
+                                    <td>{{ config.username|default:"<span class='text-muted'>Không có</span>" }}</td>
+                                    <td>
+                                        {% if config.is_default %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">Mặc định hệ thống</span>
+                                        {% else %}
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle">Tổ chức: {{ config.tenant.name }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end px-4">
+                                        <button class="btn btn-sm btn-outline-secondary me-1"
+                                                onclick="openEditElkConfigModal('{{ config.id }}', '{{ config.name|escapejs }}', '{{ config.hosts|escapejs }}', '{{ config.username|escapejs }}')">
+                                            <i class="bi bi-pencil-square"></i> Sửa
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                onclick="deleteElkConfig('{{ config.id }}', '{{ config.name|escapejs }}')">
+                                            <i class="bi bi-trash"></i> Xóa
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">Chưa có cấu hình cụm ELK nào được thiết lập.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
                 </div>
-                <i class="bi bi-check-circle fs-1 text-white-50"></i>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm bg-warning text-white p-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1 text-white-50">Cảnh báo (Warning)</h6>
-                    <h3 class="fw-bold mb-0" id="summary-warning">0</h3>
-                </div>
-                <i class="bi bi-exclamation-triangle fs-1 text-white-50"></i>
+    {% endif %}
+
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-bottom">
+                <h5 class="card-title mb-0 fw-bold text-primary"><i class="bi bi-exclamation-triangle me-2"></i>Ngưỡng cảnh báo tùy biến</h5>
             </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card border-0 shadow-sm bg-danger text-white p-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1 text-white-50">Nguy cấp (Critical)</h6>
-                    <h3 class="fw-bold mb-0" id="summary-critical">0</h3>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="px-4">Chỉ số giám sát (Metric)</th>
+                                {% if request.user.is_superuser %}
+                                <th>Thuộc tổ chức (Tenant)</th>
+                                {% endif %}
+                                <th class="text-warning fw-bold">Ngưỡng Cảnh báo (Warning)</th>
+                                <th class="text-danger fw-bold">Ngưỡng Tới hạn (Critical)</th>
+                                <th class="text-end px-4">Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if thresholds %}
+                                {% for th in thresholds %}
+                                <tr>
+                                    <td class="px-4 fw-semibold">{{ th.get_metric_display }}</td>
+                                    {% if request.user.is_superuser %}
+                                    <td>{{ th.tenant.name|default:"<span class='text-muted'>Mặc định hệ thống</span>" }}</td>
+                                    {% endif %}
+                                    <td class="text-warning fw-bold">{{ th.warning_threshold }}</td>
+                                    <td class="text-danger fw-bold">{{ th.critical_threshold }}</td>
+                                    <td class="text-end px-4">
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                onclick="deleteThreshold('{{ th.id }}', '{{ th.get_metric_display|escapejs }}')">
+                                            <i class="bi bi-trash"></i> Xóa ngưỡng
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="{% if request.user.is_superuser %}5{% else %}4{% endif %}" class="text-center py-4 text-muted">
+                                        Không có ngưỡng tùy biến nào. Hệ thống đang áp dụng các hạn mức cảnh báo mặc định.
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
                 </div>
-                <i class="bi bi-lightning-charge fs-1 text-white-50"></i>
             </div>
         </div>
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body py-3">
-        <form id="filterForm" class="row g-2 align-items-center">
-            <div class="col-md-2" style="display:none;">
-                <select id="filterRangeType"><option value="hours" selected>Hours</option></select>
+{% if request.user.is_superuser %}
+<div class="modal fade" id="modalAddElkConfig" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i>Thêm cấu hình cụm ELK mới</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="toggleModal('modalAddElkConfig', false)"></button>
             </div>
-            <div class="col-md-3">
-                <label class="form-label small fw-bold text-muted mb-1">Khoảng thời gian xem dữ liệu</label>
-                <select class="form-select form-select-sm" id="filterRangeValue">
-                    <option value="1">1 giờ qua</option>
-                    <option value="6">6 giờ qua</option>
-                    <option value="12">12 giờ qua</option>
-                    <option value="24" selected>24 giờ qua</option>
-                </select>
+            <div class="modal-body">
+                <form id="formAddElkConfig" onsubmit="event.preventDefault();">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Tên gợi nhớ</label>
+                        <input type="text" class="form-control" name="name" placeholder="Ví dụ: Cluster ELK Hà Nội" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Cấu hình Hosts (URL cách nhau bằng dấu phẩy hoặc dạng JSON)</label>
+                        <input type="text" class="form-control" name="hosts" placeholder='http://172.17.104.12:9200' required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Tài khoản (Username)</label>
+                            <input type="text" class="form-control" name="username" placeholder="Để trống nếu không bật Auth">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Mật khẩu (Password)</label>
+                            <input type="password" class="form-control" name="password" placeholder="Mật khẩu truy cập">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Phạm vi áp dụng (Is Default)</label>
+                        <select class="form-select" name="is_default" id="selectIsDefault" onchange="onIsDefaultChange()">
+                            <option value="true">Áp dụng chung toàn hệ thống (Mặc định)</option>
+                            <option value="false">Chỉ áp dụng riêng cho một tổ chức</option>
+                        </select>
+                    </div>
+                    <div class="mb-3 d-none" id="groupTenantSelect">
+                        <label class="form-label fw-semibold text-primary">Chọn Tổ chức (Tenant) thụ hưởng</label>
+                        <select class="form-select border-primary" name="tenant_id">
+                            <option value="">-- Chọn tổ chức ứng với cụm ELK này --</option>
+                            {% for tenant in tenants %}
+                                <option value="{{ tenant.id }}">{{ tenant.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="text-end pt-2">
+                        <button type="button" class="btn btn-light me-2" onclick="toggleModal('modalAddElkConfig', false)">Hủy</button>
+                        <button type="submit" class="btn btn-primary px-4" onclick="submitAddElkConfig(event)">Lưu lại</button>
+                    </div>
+                </form>
             </div>
-            <div class="col-md-3">
-                <label class="form-label small fw-bold text-muted mb-1">Mức độ cảnh báo</label>
-                <select class="form-select form-select-sm" id="filterSeverity">
-                    <option value="">-- Tất cả các mức --</option>
-                    <option value="ok">Bình thường (OK)</option>
-                    <option value="warning">Cảnh báo (Warning)</option>
-                    <option value="critical">Nguy cấp (Critical)</option>
-                </select>
-            </div>
-            <div class="col-md-5">
-                <label class="form-label small fw-bold text-muted mb-1">Từ khóa tìm kiếm Hostname</label>
-                <input type="text" class="form-control form-control-sm" id="filterHostname" placeholder="Nhập tên host cần lọc...">
-            </div>
-            <div class="col-md-1 mt-4 text-end">
-                <button type="submit" class="btn btn-dark btn-sm w-100"><i class="bi bi-search"></i></button>
-            </div>
-        </form>
+        </div>
     </div>
 </div>
 
-<div id="view-grid-container" class="row g-3">
+<div class="modal fade" id="modalEditElkConfig" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Cập nhật kết nối cụm ELK</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="toggleModal('modalEditElkConfig', false)"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formEditElkConfig" onsubmit="event.preventDefault();">
+                    {% csrf_token %}
+                    <input type="hidden" name="config_id" id="editElkConfigId">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Tên gợi nhớ</label>
+                        <input type="text" class="form-control" name="name" id="editElkName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Cấu hình Hosts</label>
+                        <input type="text" class="form-control" name="hosts" id="editElkHosts" required>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Tài khoản (Username)</label>
+                            <input type="text" class="form-control" name="username" id="editElkUsername">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Mật khẩu mới (Password)</label>
+                            <input type="password" class="form-control" name="password" placeholder="Bỏ trống nếu giữ nguyên">
+                        </div>
+                    </div>
+                    <div class="text-end pt-2">
+                        <button type="button" class="btn btn-light me-2" onclick="toggleModal('modalEditElkConfig', false)">Hủy</button>
+                        <button type="submit" class="btn btn-secondary px-4" onclick="submitEditElkConfig(event)">Cập nhật</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
+</div>
+{% endif %}
 
-<div id="view-table-container" class="card border-0 shadow-sm d-none">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light small">
-                    <tr>
-                        <th class="ps-3">Thời gian ghi nhận</th>
-                        <th>Tên Máy Chủ (Hostname)</th>
-                        <th>CPU</th>
-                        <th>RAM</th>
-                        <th>Disk sử dụng</th>
-                        <th>Mail Queue</th>
-                        <th>Sự cố Zimbra Service</th>
-                        <th>Mức độ</th>
-                        <th class="text-end pe-3">Xem log</th>
-                    </tr>
-                </thead>
-                <tbody id="metricTableBody">
-                    </tbody>
-            </table>
+<div class="modal fade" id="modalUpsertThreshold" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-sliders me-2"></i>Thiết lập ngưỡng cảnh báo tùy biến</h5>
+                <button type="button" class="btn-close btn-close-white" onclick="toggleModal('modalUpsertThreshold', false)"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formUpsertThreshold" onsubmit="event.preventDefault();">
+                    {% csrf_token %}
+
+                    {% if request.user.is_superuser %}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-primary">Cấu hình này áp dụng cho tổ chức:</label>
+                        <select class="form-select border-primary" name="tenant_id">
+                            <option value="">Áp dụng làm mặc định Hệ thống (Tất cả Tenant)</option>
+                            {% for tenant in tenants %}
+                                <option value="{{ tenant.id }}">{{ tenant.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Chỉ số giám sát (Metric)</label>
+                        <select class="form-select" name="metric" required>
+                            <option value="">-- Chọn chỉ số giám sát cần đặt ngưỡng --</option>
+                            {% for key, label in metric_choices %}
+                                <option value="{{ key }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold text-warning">Ngưỡng Cảnh báo (Warning)</label>
+                            <input type="number" step="0.1" class="form-control border-warning" name="warning_threshold" placeholder="Ví dụ: 80" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold text-danger">Ngưỡng Tới hạn (Critical)</label>
+                            <input type="number" step="0.1" class="form-control border-danger" name="critical_threshold" placeholder="Ví dụ: 95" required>
+                        </div>
+                    </div>
+                    <div class="text-end pt-2">
+                        <button type="button" class="btn btn-light me-2" onclick="toggleModal('modalUpsertThreshold', false)">Hủy</button>
+                        <button type="submit" class="btn btn-dark px-4" onclick="submitUpsertThreshold(event)">Cập nhật ngưỡng</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/monitor_metric.js' %}" defer></script>
+<script src="{% static 'js/monitor_config.js' %}" defer></script>
 {% endblock %}

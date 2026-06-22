@@ -5,7 +5,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="fw-bold mb-0"><i class="bi bi-server me-2"></i>Nhật ký chi tiết: {{ hostname }}</h4>
-        <small class="text-muted">Xem lịch sử chuỗi vết log đẩy từ Agent về hệ thống Elasticsearch</small>
+        <small class="text-muted">
+            Tổ chức: <strong>{{ tenant_name }}</strong> -- Xem lịch sử chuỗi vết log đẩy từ Agent về hệ thống Elasticsearch
+        </small>
     </div>
     <a href="{% url 'monitor_metric' %}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-arrow-left me-1"></i>Quay lại tổng quan
@@ -63,11 +65,28 @@
 </div>
 
 <script>
-    const HOSTNAME = "{{ hostname }}";
+    const HOSTNAME = "{{ hostname|escapejs }}";
+    // TENANT_ID lấy từ path param (đã validate quyền ở views_metric.host_detail_view)
+    // -- bắt buộc phải có trong URL gọi API, KHÔNG còn dùng query string nữa.
+    const TENANT_ID = {{ tenant_id }};
 
     document.addEventListener("DOMContentLoaded", () => {
         loadHostDetailLogs();
     });
+
+    /**
+     * Định dạng tốc độ mạng tức thời (bits/giây) thành Mbps/Kbps -- giống
+     * formatBitrate() trong monitor_metric.js. Trang này độc lập (không
+     * load monitor_metric.js) nên định nghĩa lại tại đây.
+     */
+    function formatBitrate(bps) {
+        if (bps === undefined || bps === null || isNaN(bps)) return '-';
+        const num = Number(bps);
+        if (num >= 1000 ** 3) return `${(num / 1000 ** 3).toFixed(2)} Gbps`;
+        if (num >= 1000 ** 2) return `${(num / 1000 ** 2).toFixed(2)} Mbps`;
+        if (num >= 1000) return `${(num / 1000).toFixed(2)} Kbps`;
+        return `${num} bps`;
+    }
 
     async function loadHostDetailLogs() {
         const hours = document.getElementById('detailHours').value;
@@ -76,12 +95,19 @@
 
         tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
 
-        let url = `/monitor/api/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}`;
-        if(severity) url += `&severity=${severity}`;
+        // THAY ĐỔI: tenant_id giờ nằm trong PATH, không còn query string.
+        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}`;
+        if (severity) url += `&severity=${severity}`;
 
         try {
             const res = await fetch(url).then(r => r.json());
-            if(!res.items || res.items.length === 0) {
+
+            if (res.error) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
+                return;
+            }
+
+            if (!res.items || res.items.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
                 return;
             }
@@ -92,8 +118,11 @@
                     ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
                     : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
 
-                let rxMb = item.net_rx ? (item.net_rx / (1024 * 1024)).toFixed(2) + ' MB' : '-';
-                let txMb = item.net_tx ? (item.net_tx / (1024 * 1024)).toFixed(2) + ' MB' : '-';
+                // THAY ĐỔI: dùng net_rx_bps/net_tx_bps (tốc độ tức thời, do
+                // agent tự tính -- xem agent_metrics.sh) thay vì net_rx/
+                // net_tx (counter lũy kế cũ, dễ hiểu lầm là tốc độ hiện tại).
+                let rxRate = formatBitrate(item.net_rx_bps);
+                let txRate = formatBitrate(item.net_tx_bps);
                 let t = item.timestamp ? item.timestamp.replace('T', ' ').substring(0,19) : '-';
 
                 return `
@@ -102,8 +131,8 @@
                         <td class="fw-semibold">${item.cpu}%</td>
                         <td class="fw-semibold">${item.ram}%</td>
                         <td>${item.disk}%</td>
-                        <td class="font-monospace text-muted">${rxMb}</td>
-                        <td class="font-monospace text-muted">${txMb}</td>
+                        <td class="font-monospace text-muted">${rxRate}</td>
+                        <td class="font-monospace text-muted">${txRate}</td>
                         <td><span class="badge bg-dark">${item.queue || 0}</span></td>
                         <td>${downList}</td>
                         <td class="pe-3"><span class="badge ${badge} text-uppercase font-monospace">${item.severity}</span></td>

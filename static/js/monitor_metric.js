@@ -1,5 +1,19 @@
 /**
  * monitor_metric.js - Nâng cấp Realtime Hybrid (WebSocket + Fallback Polling)
+ *
+ * THAY ĐỔI BẢO MẬT: WebSocket giờ yêu cầu "subscribe" kèm tenant_id sau khi
+ * connect (xem consumers.py). Với Superuser, biến window.MONITOR_TENANT_ID
+ * phải được set TRƯỚC khi DOMContentLoaded (template metric.html render ra)
+ * -- nếu null/undefined, không subscribe gì cả, không gọi API, chỉ hiện
+ * placeholder yêu cầu chọn tenant.
+ *
+ * THAY ĐỔI HIỂN THỊ RX/TX: dùng net_rx_bps/net_tx_bps (tốc độ TỨC THỜI,
+ * đơn vị bits/giây, do agent tự tính bằng cách lưu cache giá trị counter +
+ * timestamp của lần chạy trước rồi tính delta -- xem agent_metrics.sh và
+ * metric.conf) -- KHÔNG còn dùng net_rx/net_tx (counter lũy kế từ lúc
+ * interface up, dễ hiểu lầm là tốc độ hiện tại trong khi thực ra là tổng
+ * dồn). Hiển thị theo Mbps/Kbps -- chuẩn ngành mạng, dễ so sánh với băng
+ * thông danh định của server (ví dụ "1 Gbps link").
  */
 
 const API_METRIC_URL = '/monitor/api/metric/';
@@ -12,54 +26,151 @@ let isPollingActive = false; // Cờ kiểm soát trạng thái Polling
 
 // Cấu hình WebSocket
 let socket = null;
+let wsReconnectTimer = null;
 const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
 const wsUrl = wsScheme + window.location.host + "/ws/monitor/metrics/";
 
+/**
+ * Tenant đang được xem:
+ * - Non-superuser: server tự ép theo user.tenant, giá trị này không quan
+ *   trọng (consumers.py sẽ bỏ qua và tự lấy user.tenant), nhưng vẫn cần
+ *   khác null để code biết "đã có quyền xem, được phép gọi API/subscribe".
+ * - Superuser: PHẢI được set qua dropdown chọn tenant (select2) trên
+ *   metric.html, ví dụ: window.MONITOR_TENANT_ID = 12; rồi gọi
+ *   window.onTenantSelected(12). Mặc định null = chưa chọn = không xem gì.
+ */
+window.MONITOR_IS_SUPERUSER = window.MONITOR_IS_SUPERUSER || false;
+window.MONITOR_TENANT_ID = window.MONITOR_TENANT_ID || null;
+
+/**
+ * Tenant CỐ ĐỊNH của user hiện tại -- CHỈ áp dụng cho non-superuser (mỗi
+ * non-superuser luôn thuộc đúng 1 tenant). Server-side template
+ * (metric.html) phải set giá trị này = request.user.tenant_id.
+ *
+ * Dùng riêng cho việc build link sang trang chi tiết host (xem
+ * renderHostDetailLink) -- KHÁC với MONITOR_TENANT_ID (tenant ĐANG XEM,
+ * có thể đổi qua dropdown nếu là superuser). Với superuser, biến này luôn
+ * null vì họ không có 1 tenant cố định -- link host detail của superuser
+ * phải dùng MONITOR_TENANT_ID (tenant đang chọn) thay thế.
+ */
+window.MONITOR_USER_TENANT_ID = window.MONITOR_USER_TENANT_ID || null;
+
+function hasActiveScope() {
+    if (!window.MONITOR_IS_SUPERUSER) return true; // non-superuser luôn có scope (tenant của họ)
+    return !!window.MONITOR_TENANT_ID;
+}
+
+/**
+ * Build link sang trang chi tiết host, kèm đúng tenant_id trong path
+ * (/monitor/tenant/<id>/host/<hostname>/detail/). Nếu chưa xác định được
+ * tenant nào để gắn vào link (vd: superuser chưa chọn tenant), trả về nút
+ * disabled thay vì tạo link hỏng dẫn tới lỗi 403/404 khi click.
+ */
+function renderHostDetailLink(hostname) {
+    const tenantId = window.MONITOR_IS_SUPERUSER ? window.MONITOR_TENANT_ID : window.MONITOR_USER_TENANT_ID;
+
+    if (!tenantId) {
+        return `<button class="btn btn-sm btn-outline-secondary py-0 px-2 disabled" disabled title="Không xác định được tổ chức"><i class="bi bi-eye-slash"></i></button>`;
+    }
+
+    const url = `/monitor/tenant/${encodeURIComponent(tenantId)}/host/${encodeURIComponent(hostname)}/detail/`;
+    return `<a href="${url}" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-eye"></i></a>`;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Tải dữ liệu lần đầu tiên để tránh màn hình trống
-    loadMetricsByHTTP();
+    if (hasActiveScope()) {
+        loadMetricsByHTTP();
+        initWebSocket();
+    } else {
+        renderSelectTenantPlaceholder();
+    }
 
-    // Khởi tạo kết nối Realtime ưu tiên
-    initWebSocket();
-
-    // Lắng nghe Form lọc dữ liệu
     const filterForm = document.getElementById('filterForm');
     if (filterForm) {
         filterForm.addEventListener('submit', (e) => {
             e.preventDefault();
+            if (!hasActiveScope()) return;
             if (isPollingActive) {
                 loadMetricsByHTTP();
                 resetCountdown();
             } else {
-                // Nếu đang dùng Socket, gửi yêu cầu lọc thông qua HTTP hoặc tái thiết lập
                 loadMetricsByHTTP();
             }
         });
     }
 
-    // Sự kiện nút làm mới thủ công
     const btnRefresh = document.getElementById('btnRefresh');
     if (btnRefresh) {
         btnRefresh.addEventListener('click', () => {
+            if (!hasActiveScope()) return;
             loadMetricsByHTTP();
             if (isPollingActive) resetCountdown();
         });
     }
 });
 
+/**
+ * Gọi khi Superuser chọn 1 tenant từ select2 trên UI (metric.html cần gọi
+ * hàm này trong sự kiện 'change' của dropdown).
+ * @param {number|null} tenantId
+ */
+window.onTenantSelected = function(tenantId) {
+    window.MONITOR_TENANT_ID = tenantId || null;
+
+    if (!hasActiveScope()) {
+        renderSelectTenantPlaceholder();
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({action: 'subscribe', tenant_id: null}));
+        }
+        return;
+    }
+
+    loadMetricsByHTTP();
+    resetCountdown();
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({action: 'subscribe', tenant_id: window.MONITOR_TENANT_ID}));
+    } else {
+        // Nếu socket chưa sẵn sàng (đang kết nối/đang ở polling), khởi tạo lại.
+        initWebSocket();
+    }
+};
+
+function renderSelectTenantPlaceholder() {
+    const grid = document.getElementById('view-grid-container');
+    const tbody = document.getElementById('metricTableBody');
+    const msg = `<div class="col-12 text-center text-muted py-5"><i class="bi bi-funnel fs-2"></i><br>Vui lòng chọn Tổ chức (Tenant) để xem dữ liệu giám sát.</div>`;
+    if (grid) grid.innerHTML = msg;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">Vui lòng chọn Tổ chức (Tenant) để xem dữ liệu giám sát.</td></tr>`;
+    updateSummaryCounters([]);
+}
+
 /** Khởi tạo kết nối WebSocket Realtime */
 function initWebSocket() {
+    if (!hasActiveScope()) return;
+
     console.log("Đang kết nối WebSocket Realtime: " + wsUrl);
     socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
-        console.log("⚡ Kết nối WebSocket thành công. Đang ở chế độ REALTIME.");
-        stopPollingFallback(); // Tắt polling nếu đang chạy
-        updateConnectionStatus(true);
+        console.log("⚡ Kết nối WebSocket thành công. Đang gửi yêu cầu subscribe...");
+        stopPollingFallback();
+        // Server sẽ tự ép tenant_id đúng quyền với non-superuser; với
+        // superuser thì gửi đúng tenant đang chọn trên UI.
+        socket.send(JSON.stringify({action: 'subscribe', tenant_id: window.MONITOR_TENANT_ID}));
     };
 
     socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        if (data && data.subscribed === false) {
+            // Server từ chối (vd: superuser chưa chọn tenant hợp lệ).
+            updateConnectionStatus(false);
+            return;
+        }
+        if (data && typeof data.subscribed === 'boolean') {
+            updateConnectionStatus(true);
+            return;
+        }
         processAndRender(data);
     };
 
@@ -70,7 +181,16 @@ function initWebSocket() {
     socket.onclose = (e) => {
         console.warn(`⚠️ WebSocket bị đóng (${e.code}). Chuyển cấu hình sang tự động POLLING (30s)...`);
         updateConnectionStatus(false);
-        startPollingFallback(); // Kích hoạt cơ chế Fallback dự phòng ngay lập tức
+        startPollingFallback();
+
+        // Tự động thử kết nối lại sau 5s nếu vẫn còn quyền xem dữ liệu,
+        // để không bị kẹt ở polling mãi mãi khi server WS phục hồi.
+        if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+        if (e.code !== 4001) { // 4001 = consumers.py từ chối do chưa đăng nhập, không retry
+            wsReconnectTimer = setTimeout(() => {
+                if (hasActiveScope()) initWebSocket();
+            }, 5000);
+        }
     };
 }
 
@@ -88,13 +208,13 @@ function updateConnectionStatus(isRealtime) {
 /** Bắt đầu kích hoạt vòng lặp Polling dự phòng */
 function startPollingFallback() {
     if (isPollingActive) return;
+    if (!hasActiveScope()) return;
     isPollingActive = true;
     resetCountdown();
 
     if (countdownInterval) clearInterval(countdownInterval);
     countdownInterval = setInterval(() => {
         reloadCountdown--;
-        // Cập nhật text đếm ngược nếu cần hiển thị ra HTML
         const countdownEl = document.getElementById('countdown');
         if (countdownEl) countdownEl.textContent = reloadCountdown;
 
@@ -120,6 +240,11 @@ function resetCountdown() {
 
 /** Hàm lấy dữ liệu qua đường HTTP truyền thống khi Socket sập */
 async function loadMetricsByHTTP() {
+    if (!hasActiveScope()) {
+        renderSelectTenantPlaceholder();
+        return;
+    }
+
     const queryStr = buildQueryParams();
     try {
         const response = await fetch(`${API_METRIC_URL}?${queryStr}`);
@@ -131,23 +256,52 @@ async function loadMetricsByHTTP() {
     }
 }
 
-/** Xử lý gom nhóm logic Render dùng chung cho cả Socket lẫn HTTP */
+/**
+ * Xử lý gom nhóm logic Render dùng chung cho cả Socket lẫn HTTP.
+ *
+ * QUAN TRỌNG: áp lại filter severity/hostname hiện tại của form NGAY TẠI
+ * ĐÂY -- vì dữ liệu đẩy qua WebSocket (mỗi 5s, từ Celery Beat quét toàn bộ
+ * tenant) KHÔNG biết người dùng đang lọc gì trên UI. Nếu không áp filter
+ * client-side, mỗi lần WS đẩy data mới sẽ XÓA MẤT kết quả filter người
+ * dùng vừa bấm tìm kiếm, hiện lại toàn bộ host không lọc -- đây là lỗi UX
+ * đã xảy ra trước khi sửa.
+ *
+ * Riêng filter "khoảng thời gian" (hours/days) KHÔNG áp được ở đây, vì
+ * Celery Beat luôn quét cố định 24h gần nhất (xem services/metric.py +
+ * tasks/metric.py) -- muốn xem khoảng giờ khác phải gọi lại HTTP
+ * (loadMetricsByHTTP), không thể lọc từ data WS đã nhận.
+ */
 function processAndRender(data) {
     const rawItems = data.items || [];
 
-    // Nhóm Host để lấy trạng thái Snapshot mới nhất của server
     const uniqueHostsMap = new Map();
     rawItems.forEach(item => {
         if (item.hostname && !uniqueHostsMap.has(item.hostname)) {
             uniqueHostsMap.set(item.hostname, item);
         }
     });
-    const finalHostsList = Array.from(uniqueHostsMap.values());
+    let finalHostsList = Array.from(uniqueHostsMap.values());
 
-    // Cập nhật lên UI
+    finalHostsList = applyClientSideFilters(finalHostsList);
+
     updateSummaryCounters(finalHostsList);
     renderGridView(finalHostsList);
     renderTableView(finalHostsList);
+}
+
+/** Áp filter severity + hostname (lowercase, khớp cách tìm theo chuỗi con) theo giá trị form hiện tại. */
+function applyClientSideFilters(hosts) {
+    const severityEl = document.getElementById('filterSeverity');
+    const hostnameEl = document.getElementById('filterHostname');
+
+    const severityValue = severityEl ? severityEl.value : '';
+    const hostnameValue = hostnameEl ? hostnameEl.value.trim().toLowerCase() : '';
+
+    return hosts.filter(h => {
+        if (severityValue && h.severity !== severityValue) return false;
+        if (hostnameValue && !(h.hostname || '').toLowerCase().includes(hostnameValue)) return false;
+        return true;
+    });
 }
 
 // =========================================================================
@@ -208,6 +362,10 @@ function renderGridView(hosts) {
                             <div class="d-flex justify-content-between small mb-1"><span>Dung lượng Disk</span><span class="fw-bold">${formatPercent(h.disk)}</span></div>
                             <div class="progress"><div class="progress-bar bg-warning" style="width: ${h.disk || 0}%"></div></div>
                         </div>
+                        <div class="d-flex justify-content-between small text-muted mb-2">
+                            <div><i class="bi bi-arrow-down-circle me-1"></i>RX: <span class="fw-bold">${formatBitrate(h.net_rx_bps)}</span></div>
+                            <div><i class="bi bi-arrow-up-circle me-1"></i>TX: <span class="fw-bold">${formatBitrate(h.net_tx_bps)}</span></div>
+                        </div>
                         <div class="pt-2 border-top d-flex justify-content-between align-items-center small">
                             <div><i class="bi bi-envelope-paper me-1"></i>Queue: <span class="badge bg-secondary">${h.queue || 0}</span></div>
                             <div class="${zimbraStatus}">Lỗi dịch vụ: ${h.zimbra_not_running_count || 0}</div>
@@ -224,7 +382,7 @@ function renderTableView(hosts) {
     if (!tbody) return;
 
     if (hosts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">Không có máy chủ thỏa mãn điều kiện.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">Không có máy chủ thỏa mãn điều kiện.</td></tr>`;
         return;
     }
 
@@ -237,10 +395,12 @@ function renderTableView(hosts) {
                 <td>${formatPercent(h.cpu)}</td>
                 <td>${formatPercent(h.ram)}</td>
                 <td>${formatPercent(h.disk)}</td>
+                <td class="font-monospace">${formatBitrate(h.net_rx_bps)}</td>
+                <td class="font-monospace">${formatBitrate(h.net_tx_bps)}</td>
                 <td><span class="badge bg-dark">${h.queue || 0}</span></td>
                 <td><span class="${h.zimbra_not_running_count > 0 ? 'text-danger fw-bold' : 'text-success'}">${h.zimbra_not_running_count > 0 ? 'Lỗi' : 'Ổn định'}</span></td>
                 <td><span class="badge ${badgeClass}">${h.severity}</span></td>
-                <td class="text-end pe-3"><a href="/monitor/host/${encodeURIComponent(h.hostname)}/detail/" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-eye"></i></a></td>
+                <td class="text-end pe-3">${renderHostDetailLink(h.hostname)}</td>
             </tr>
         `;
     }).join('');
@@ -258,7 +418,8 @@ function buildQueryParams() {
 
     let params = `${rangeType}=${rangeValue}`;
     if (severityEl && severityEl.value) params += `&severity=${severityEl.value}`;
-    if (hostnameEl && hostnameEl.value.trim()) params += `&hostname=${encodeURIComponent(hostnameEl.value.trim())}`;
+    if (hostnameEl && hostnameEl.value.trim()) params += `&hostname=${encodeURIComponent(hostnameEl.value.trim().toLowerCase())}`;
+    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += `&tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
     return params;
 }
 
@@ -268,6 +429,23 @@ function setErrorState(msg) {
 }
 
 function formatPercent(val) { return (val === undefined || val === null) ? '-' : `${Number(val).toFixed(1)}%`; }
+
+/**
+ * Định dạng tốc độ mạng tức thời (đơn vị gốc: bits/giây, do agent tính sẵn
+ * trong net_rx_bps/net_tx_bps) thành Mbps/Kbps -- CHUẨN NGÀNH MẠNG dùng
+ * bits, KHÁC với dung lượng file/disk dùng bytes. 1 Mbps = 1,000,000 bit/s
+ * (dùng hệ số 1000, không phải 1024, vì đây là quy ước chuẩn cho băng
+ * thông mạng -- ví dụ link "1 Gbps" luôn hiểu là 1,000,000,000 bit/s).
+ */
+function formatBitrate(bps) {
+    if (bps === undefined || bps === null || isNaN(bps)) return '-';
+    const num = Number(bps);
+    if (num >= 1000 ** 3) return `${(num / 1000 ** 3).toFixed(2)} Gbps`;
+    if (num >= 1000 ** 2) return `${(num / 1000 ** 2).toFixed(2)} Mbps`;
+    if (num >= 1000) return `${(num / 1000).toFixed(2)} Kbps`;
+    return `${num} bps`;
+}
+
 function escapeHtmlText(str) { return str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
 function formatTimestamp(isoStr) {
     if (!isoStr) return '-';

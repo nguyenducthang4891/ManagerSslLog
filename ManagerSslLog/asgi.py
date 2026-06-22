@@ -6,7 +6,7 @@ from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
 import environ
 
 # 1. Xác định đường dẫn thư mục gốc dự án (D:\Programming\ManagerSslLog)
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # 2. Load file .env
 env = environ.Env()
