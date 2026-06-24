@@ -71,7 +71,7 @@
                     <ul class="dropdown-menu" aria-labelledby="navAdmin">
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'user_list' %}active{% endif %}" href="{% url 'user_list' %}"><i class="bi bi-person-badge me-2"></i>Nhân viên</a></li>
                         {% if request.user.is_superuser %}
-                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'tenant_list' %}active{% endif %}" href="{% url 'tenant_list' %}"><i class="bi bi-building me-2"></i>Tổ chức (Tenants)</a></li>
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'tenant_list' %}active{% endif %}" href="{% url 'tenant_list' %}"><i class="bi bi-building me-2"></i>Tổ chức </a></li>
                         {% endif %}
                     </ul>
                 </li>

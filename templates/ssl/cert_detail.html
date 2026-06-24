@@ -3,23 +3,75 @@
 {% block title %}Chi tiết Chứng chỉ{% endblock %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-        <h2 class="h4 fw-bold text-dark mb-1">Chi tiết Chứng chỉ: {{ cert.name }}</h2>
-        <p class="text-muted mb-0">
-            Trạng thái hiện tại:
-            <span id=\"cert-status\" class="fw-semibold text-uppercase px-2 py-1 rounded small
-                {% if cert.status == 'deployed' %}bg-success-subtle text-success-emphasis
-                {% elif cert.status == 'deploying' %}bg-warning-subtle text-warning-emphasis
-                {% elif cert.status == 'failed' %}bg-danger-subtle text-danger-emphasis
-                {% else %}bg-secondary-subtle text-secondary-emphasis{% endif %}">
-                {{ cert.get_status_display }}
-            </span>
-        </p>
+<div class="card mb-4">
+    <div class="card-header">
+        <h5>Thông tin chi tiết Chứng chỉ</h5>
     </div>
-    <button id="btn-deploy" class="btn btn-success btn-sm fw-bold shadow-sm">
-        <i class="bi bi-rocket-takeoff me-1"></i>Triển khai ngay lên Zimbra
-    </button>
+    <div class="card-body">
+        <table class="table table-bordered">
+            <tr>
+                <th>Tên chứng chỉ:</th>
+                <td>{{ cert.name }}</td>
+            </tr>
+            <tr>
+                <th>Common Name (CN):</th>
+                <td><code>{{ cert.common_name }}</code></td>
+            </tr>
+            <tr>
+                <th>Ngày phát hành:</th>
+                <td>{{ cert.valid_from|date:"d-m-Y H:i:s" }}</td>
+            </tr>
+            <tr>
+                <th>Ngày hết hạn:</th>
+                <td>
+                    {{ cert.valid_to|date:"d-m-Y H:i:s" }}
+                    {% if cert.is_expired %}
+                        <span class="badge bg-danger">Đã hết hạn</span>
+                    {% elif cert.is_expiring_soon %}
+                        <span class="badge bg-warning text-dark">Sắp hết hạn (Còn {{ cert.days_until_expiry }} ngày)</span>
+                    {% else %}
+                        <span class="badge bg-success">Còn hạn (Còn {{ cert.days_until_expiry }} ngày)</span>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <th>Đơn vị phát hành (Issuer):</th>
+                <td>{{ cert.issuer }}</td>
+            </tr>
+            <tr>
+                <th>Trạng thái hệ thống:</th>
+                <td>
+                    <span id="cert-status-badge" class="badge
+                        {% if cert.status == 'deployed' %}bg-success
+                        {% elif cert.status == 'deploying' %}bg-info
+                        {% elif cert.status == 'failed' %}bg-danger
+                        {% else %}bg-secondary{% endif %}">
+                        {{ cert.get_status_display }}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        <div class="d-flex gap-2">
+            <button id="btn-check-ssl-live" class="btn btn-outline-primary btn-sm" onclick="checkSslLive({{ cert.id }})">
+                <i class="fa fa-sync"></i> Kiểm tra cài đặt SSL thực tế
+            </button>
+
+            {% if cert.status != 'deployed' and cert.status != 'deploying' %}
+                <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#modalUpdateCert">
+                    <i class="fa fa-edit"></i> Sửa chứng chỉ
+                </button>
+            {% endif %}
+
+            {% if cert.status != 'deploying' and cert.status != 'deployed' or cert.is_expired %}
+                <button class="btn btn-danger btn-sm" onclick="deleteCertificate({{ cert.id }})">
+                    <i class="fa fa-trash"></i> Xóa chứng chỉ
+                </button>
+            {% endif %}
+        </div>
+
+        <div id="check-live-result" class="mt-3 d-none alert"></div>
+    </div>
 </div>
 
 {% if cert.is_expired %}
@@ -133,6 +185,74 @@
     </div>
 </div>
 
+
+    <div class="modal fade" id="modalUpdateCert" data-bs-backdrop="static" tabindex="-1" aria-labelledby="modalUpdateCertLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content shadow">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title fw-bold h6 mb-0" id="modalUpdateCertLabel">
+                    <i class="bi bi-pencil-square me-1 text-warning"></i> Cập nhật thông tin chứng chỉ SSL
+                </h5>
+                <button type="button" class="btn-close small" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="update-ssl-form" novalidate>
+                {% csrf_token %}
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Tên gợi nhớ chứng chỉ</label>
+                            <input type="text" id="edit_ssl_name" required class="form-control form-control-sm" value="{{ cert.name }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Áp dụng cho Domain</label>
+                            <select id="edit_ssl_domain" required class="form-select form-select-sm">
+                                {% for dom in domains %}
+                                    <option value="{{ dom.id }}" {% if dom.id == cert.domain.id %}selected{% endif %}>
+                                        {{ dom.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12 mt-2">
+                            <div class="p-2 bg-light rounded border border-warning-subtle mb-2">
+                                <small class="text-warning-emphasis fw-semibold">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i> Lưu ý:
+                                </small>
+                                <p class="mb-0 text-muted" style="font-size: 0.75rem;">
+                                    Nếu bạn không muốn thay đổi các tệp tin chứng chỉ cũ, hãy để trống các trường chọn file bên dưới. Hệ thống sẽ giữ nguyên các file cũ đã phân tích hợp lệ.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">1. Server Certificate (.crt / .pem)</label>
+                            <input type="file" id="edit_f_server" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">2. Private Key (.key)</label>
+                            <input type="file" id="edit_f_key" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">3. Intermediate Certificate (Tùy chọn)</label>
+                            <input type="file" id="edit_f_inter" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">4. Root Certificate (Tùy chọn)</label>
+                            <input type="file" id="edit_f_root" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-top-0 pt-0">
+                    <button type="button" class="btn btn-secondary btn-sm fw-semibold" data-bs-dismiss="modal">Hủy bỏ</button>
+                    <button type="submit" id="btn-submit-update" class="btn btn-warning btn-sm fw-semibold text-dark">
+                        <i class="bi bi-check-circle me-1"></i> Lưu thay đổi
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -142,6 +262,7 @@
         apiTriggerDeploy: "{% url 'api_trigger_deploy' cert.id %}",
         apiGetRealtimeLog: "{% url 'api_get_realtime_log' cert.id %}",
         apiGetDeployHistory: "{% url 'api_get_deploy_history' cert.id %}",
+        apiUpdateCert: "{% url 'api_update_cert' cert.id %}",
         // Sử dụng ID ảo 999999999 để JS tự chạy lệnh regex .replace() khớp ID thực tế
         apiGetDeployHistoryDetailTemplate: "{% url 'api_get_deploy_history_detail' 999999999 %}"
     };

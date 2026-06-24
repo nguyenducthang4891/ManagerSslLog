@@ -61,8 +61,75 @@ class SSLLifecycleService:
     # mới chạy trong thread riêng.
 
     @staticmethod
+    def update_certificate(user, cert_id: int, name: str, domain_id: int,
+                           root_file=None, inter_file=None, server_file=None, key_file=None) -> SSLCertificate:
+        """Cập nhật thông tin/file của SSL nếu chưa từng deploy thành công hoặc đang deploy"""
+        try:
+            if user.is_superuser:
+                cert = SSLCertificate.objects.get(id=cert_id)
+            else:
+                cert = SSLCertificate.objects.get(id=cert_id, domain__tenant=user.tenant)
+        except SSLCertificate.DoesNotExist:
+            raise ValidationError("Không tìm thấy chứng chỉ hoặc bạn không có quyền chỉnh sửa.")
+
+        # Chỉ cho phép sửa nếu chưa deploy thành công hoặc đang deploy
+        ALLOW_UPDATE_STATUSES = [
+            SSLCertificate.STATUS_PENDING,
+            SSLCertificate.STATUS_VALID,
+            SSLCertificate.STATUS_INVALID,
+            SSLCertificate.STATUS_FAILED
+        ]
+        if cert.status not in ALLOW_UPDATE_STATUSES:
+            raise ValidationError("Chứng chỉ đã deploy hoặc đang trong tiến trình deploy, không được phép chỉnh sửa.")
+
+        try:
+            if user.is_superuser:
+                domain = Domain.objects.get(id=domain_id)
+            else:
+                domain = Domain.objects.get(id=domain_id, tenant=user.tenant)
+        except Domain.DoesNotExist:
+            raise ValidationError("Tên miền không hợp lệ hoặc không thuộc quyền quản lý của bạn.")
+
+        cert.name = name
+        cert.domain = domain
+
+        # Nếu có upload file mới thì cập nhật và re-validate
+        if server_file or key_file:
+            # Sử dụng file mới nếu có, nếu không thì dùng lại file cũ dạng FieldFile
+            s_file = server_file if server_file else cert.server_cert
+            k_file = key_file if key_file else cert.private_key
+
+            validator = SSLValidatorService(server_cert_file=s_file, private_key_file=k_file)
+            parsed_data = validator.validate_and_parse()
+
+            clean_cn = parsed_data['common_name'].replace('*.', '')
+            if clean_cn not in domain.name:
+                raise ValidationError(
+                    f"Chứng chỉ cấp cho '{parsed_data['common_name']}' không khớp với tên miền đăng ký '{domain.name}'")
+
+            cert.common_name = parsed_data['common_name']
+            cert.issuer = parsed_data['issuer']
+            cert.subject_alt_names = parsed_data['subject_alt_names']
+            cert.valid_from = parsed_data['valid_from']
+            cert.valid_to = parsed_data['valid_to']
+            cert.serial_number = parsed_data['serial_number']
+            cert.status = SSLCertificate.STATUS_VALID
+
+        if root_file:
+            cert.root_cert = root_file
+        if inter_file:
+            cert.inter_cert = inter_file
+        if server_file:
+            cert.server_cert = server_file
+        if key_file:
+            cert.private_key = key_file
+
+        cert.save()
+        return cert
+
+    @staticmethod
     def delete_certificate(user, cert_id: int):
-        """Xóa hồ sơ lưu trữ chứng chỉ khỏi hệ thống"""
+        """Xóa hồ sơ lưu trữ chứng chỉ (Chỉ cho phép nếu chưa deploy, hết hạn hoặc deploy lỗi)"""
         try:
             if user.is_superuser:
                 cert = SSLCertificate.objects.get(id=cert_id)
@@ -73,6 +140,18 @@ class SSLLifecycleService:
 
         if cert.status == SSLCertificate.STATUS_DEPLOYING:
             raise ValidationError("Hệ thống đang tiến hành deploy, không được phép xóa bản ghi.")
+
+        # Kiểm tra điều kiện: Chưa deploy thành công HOẶC Đã hết hạn
+        # Trạng thái chưa deploy thành công bao gồm: pending, valid, invalid, failed
+        is_not_deployed = cert.status in [
+            SSLCertificate.STATUS_PENDING,
+            SSLCertificate.STATUS_VALID,
+            SSLCertificate.STATUS_INVALID,
+            SSLCertificate.STATUS_FAILED
+        ]
+
+        if not (is_not_deployed or cert.is_expired):
+            raise ValidationError("Chứng chỉ đang hoạt động và chưa hết hạn, không được phép xóa.")
 
         cert.delete()
 

@@ -1,6 +1,6 @@
 /**
  * cert_detail.js
- * Xử lý nghiệp vụ Polling Log realtime và cập nhật trạng thái Deploy Chứng chỉ.
+ * Xử lý nghiệp vụ Polling Log realtime, cập nhật, xóa và kiểm tra cài đặt SSL trực tế.
  * Phụ thuộc: common.js.
  */
 
@@ -37,106 +37,232 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const btnCancelUpdate = document.querySelector('#modalUpdateCert [data-bs-dismiss="modal"]');
+    if (btnCancelUpdate) {
+        btnCancelUpdate.addEventListener('click', () => {
+            // Chủ động gọi hàm tắt modal có sẵn từ cấu trúc hệ thống (common.js)
+            toggleModal('modalUpdateCert', false);
+        });
+    }
+
+    // --- MỚI: XỬ LÝ SUBMIT CẬP NHẬT CHỨNG CHỈ (modalUpdateCert) ---
+    const updateForm = document.getElementById('update-ssl-form');
+    if (updateForm) {
+        updateForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const btnSubmit = document.getElementById('btn-submit-update');
+            const originalBtnHtml = btnSubmit.innerHTML;
+
+            // Khóa nút tránh double-submit
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Đang xử lý...';
+
+            const formData = new FormData();
+            formData.append('name', document.getElementById('edit_ssl_name').value);
+            formData.append('domain_id', document.getElementById('edit_ssl_domain').value);
+
+            // Chỉ đính kèm tệp tin nếu người dùng thực sự chọn file mới
+            const serverFile = document.getElementById('edit_f_server').files[0];
+            if (serverFile) formData.append('server_cert', serverFile);
+
+            const keyFile = document.getElementById('edit_f_key').files[0];
+            if (keyFile) formData.append('private_key', keyFile);
+
+            const interFile = document.getElementById('edit_f_inter').files[0];
+            if (interFile) formData.append('inter_cert', interFile);
+
+            const rootFile = document.getElementById('edit_f_root').files[0];
+            if (rootFile) formData.append('root_cert', rootFile);
+
+            try {
+                // Sử dụng URL từ cấu hình Endpoint routing được khai báo tập trung trong template
+                const url = window.CERT_DETAIL_URLS.apiUpdateCert;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(result.message || 'Cập nhật thông tin chứng chỉ thành công!');
+                    // Tự động reload lại trang để cập nhật thông tin hiển thị mới nhất
+                    window.location.reload();
+                } else {
+                    alert('Lỗi: ' + (result.error || 'Không thể cập nhật chứng chỉ.'));
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Có lỗi hệ thống xảy ra khi kết nối tới máy chủ.');
+            } finally {
+                // Trả lại trạng thái nút bấm ban đầu
+                btnSubmit.disabled = false;
+                btnSubmit.innerHTML = originalBtnHtml;
+            }
+        });
+    }
+
     // Kiểm tra nghiệp vụ: Nếu Cert đang ở trạng thái deploy dở dang từ trước, tự động nối tiếp phiên quét log
-    if (window.CERT_INITIAL_STATUS === 'deploying') {
-        document.getElementById('log-spinner').classList.remove('d-none');
+    const initialStatus = document.getElementById('cert-status') ? document.getElementById('cert-status').innerText.trim().toLowerCase() : '';
+    if (initialStatus === 'deploying' || initialStatus === 'đang deploy') {
         lockDeployButton(true);
-        logInterval = setInterval(fetchLogs, 2000);
+        startPollingLog();
     }
 });
 
 /**
- * Hàm kích hoạt tiến trình Automation Deploy ngầm
+ * MỚI: Kiểm tra kết nối cài đặt thực tế của SSL (Check Live)
+ */
+function checkSslLive(certId) {
+    const resultDiv = document.getElementById('check-live-result');
+    if (!resultDiv) return;
+
+    resultDiv.className = "mt-3 alert alert-info";
+    resultDiv.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Đang kết nối SSL qua cổng 443 của Domain...';
+    resultDiv.classList.remove('d-none');
+
+    fetch(`/ssl/api/certificates/${certId}/check-live/`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                resultDiv.className = "mt-3 alert alert-success d-flex align-items-start";
+                resultDiv.innerHTML = `
+                    <i class="bi bi-check-circle-fill me-2 mt-1"></i>
+                    <div>
+                        <strong>Cấu hình SSL hoạt động chính xác!</strong><br>
+                        <small class="d-block mt-1">- Nhà phát hành thực tế: ${data.issuer}</small>
+                        <small class="d-block">- Ngày hết hạn thực tế: ${data.valid_to}</small>
+                    </div>
+                `;
+            } else {
+                resultDiv.className = "mt-3 alert alert-danger d-flex align-items-start";
+                resultDiv.innerHTML = `
+                    <i class="bi bi-exclamation-triangle-fill me-2 mt-1"></i>
+                    <div><strong>Lỗi xác thực cài đặt:</strong> ${data.message || data.error}</div>
+                `;
+            }
+        }).catch(err => {
+            resultDiv.className = "mt-3 alert alert-danger";
+            resultDiv.innerHTML = "Lỗi mạng hoặc không thể kết nối tới API hệ thống.";
+        });
+}
+
+/**
+ * MỚI: Gửi yêu cầu xóa bản ghi chứng chỉ lên Backend
+ */
+function deleteCertificate(certId) {
+    if (confirm("Bạn có chắc chắn muốn xóa chứng chỉ này vĩnh viễn khỏi hệ thống quản lý?")) {
+        fetch(`/ssl/api/certificates/${certId}/delete/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                alert(data.message);
+                // Điều hướng quay lại kho lưu trữ danh sách SSL
+                window.location.href = "/ssl/certificates/";
+            } else {
+                alert("Lỗi hệ thống: " + data.error);
+            }
+        }).catch(err => {
+            alert("Không thể kết nối tới máy chủ để thực hiện lệnh xóa.");
+        });
+    }
+}
+
+/**
+ * Kích hoạt luồng chạy tiến trình Deploy chứng chỉ lên Zimbra thông qua API asynchronous
  */
 async function startDeploy() {
-    if (!confirm("Xác nhận kích hoạt Ansible/Script triển khai chứng chỉ này lên máy chủ Zimbra từ xa?")) return;
-
     lockDeployButton(true);
-    document.getElementById('log-spinner').classList.remove('d-none');
+
+    const consoleBox = document.getElementById('realtime-log-content');
+    if (consoleBox) {
+        consoleBox.textContent = ">>> Đang gửi yêu cầu khởi tạo phiên làm việc SSH đến máy chủ Zimbra...\n";
+    }
 
     const result = await fetchJSON(window.CERT_DETAIL_URLS.apiTriggerDeploy, { method: 'POST' });
-
     if (result.ok) {
-        showToast(result.data.message || 'Đã kích hoạt tiến trình triển khai thành công!', 'success');
-        logInterval = setInterval(fetchLogs, 2000); // Bắt đầu vòng lặp polling 2 giây/lần
+        updateStatusBadge('deploying', 'Đang deploy');
+        startPollingLog();
     } else {
-        showToast(result.data.error || 'Không thể kích hoạt deploy.', 'danger');
+        if (consoleBox) {
+            consoleBox.textContent += `[LỖI HỆ THỐNG] Không thể kích hoạt Deploy: ${result.data.error}\n`;
+        }
         lockDeployButton(false);
-        document.getElementById('log-spinner').classList.add('d-none');
     }
 }
 
 /**
- * Hàm Polling kéo dữ liệu log realtime từ backend
+ * Bắt đầu thiết lập Interval Polling cập nhật log liên tục từ cơ sở dữ liệu
  */
-async function fetchLogs() {
-    const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetRealtimeLog, { method: 'GET' });
-    if (!result.ok) return;
+function startPollingLog() {
+    if (logInterval) clearInterval(logInterval);
 
-    const data = result.data;
-    const consoleBox = document.getElementById('terminal-console');
-    const statusBox = document.getElementById('cert-status');
+    logInterval = setInterval(async () => {
+        const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetRealtimeLog, { method: 'GET' });
+        if (!result.ok) return;
 
-    // Cập nhật nội dung text và tự động cuộn màn hình console xuống cuối dòng log
-    consoleBox.textContent = data.deploy_log;
-    consoleBox.scrollTop = consoleBox.scrollHeight;
+        const data = result.data;
+        const consoleBox = document.getElementById('realtime-log-content');
 
-    statusBox.textContent = data.status_display || data.status;
-    updateStatusBadgeColor(statusBox, data.status);
+        if (consoleBox) {
+            consoleBox.textContent = data.log || '';
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+        }
 
-    // Kịch bản kết thúc: Script chạy xong xuôi (Thành công hoặc Thất bại)
-    if (data.status === 'deployed' || data.status === 'failed') {
-        clearInterval(logInterval);
-        document.getElementById('log-spinner').classList.add('d-none');
-        lockDeployButton(false);
-        reloadDeployHistory(); // Tự động làm mới danh sách lịch sử
-        showToast(data.status === 'deployed' ? 'Triển khai chứng chỉ thành công!' : 'Tiến trình triển khai thất bại.', data.status === 'deployed' ? 'success' : 'danger');
-    }
+        // Nếu backend thông báo tiến trình nền đã hoàn tất (không còn trạng thái 'deploying')
+        if (data.status !== 'deploying') {
+            clearInterval(logInterval);
+            logInterval = null;
+
+            // Khôi phục trạng thái giao diện trực quan
+            updateStatusBadge(data.status, data.status_display);
+            lockDeployButton(false);
+            reloadDeployHistory();
+        }
+    }, 1500); // Tần suất quét 1.5 giây một lần để tối ưu tài nguyên IO máy chủ
 }
 
 /**
- * Cập nhật màu sắc động cho Badge trạng thái theo chuẩn Bootstrap 5 màu dịu nhẹ (-subtle)
- */
-function updateStatusBadgeColor(el, status) {
-    el.className = 'fw-semibold text-uppercase px-2 py-1 rounded small ' + ({
-        deployed: 'bg-success-subtle text-success-emphasis border border-success-subtle',
-        deploying: 'bg-warning-subtle text-warning-emphasis border border-warning-subtle',
-        failed: 'bg-danger-subtle text-danger-emphasis border border-danger-subtle',
-    }[status] || 'bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle');
-}
-
-/**
- * Nạp lại danh sách lịch sử deploy bằng cơ chế AJAX mượt mà
+ * Gọi API tải lại danh sách lịch sử cấu hình deploy trong quá khứ
  */
 async function reloadDeployHistory() {
-    const tbody = document.getElementById('deploy-history-body');
+    const tableBody = document.getElementById('deploy-history-body');
+    if (!tableBody) return;
+
     const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetDeployHistory, { method: 'GET' });
-
     if (!result.ok) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3">Lỗi khi tải dữ liệu lịch sử.</td></tr>';
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Không thể tải danh sách lịch sử.</td></tr>`;
         return;
     }
 
-    const rows = result.data.history || [];
-    if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Chưa có lần deploy nào được ghi nhận.</td></tr>';
+    const historyData = result.data.history || [];
+    if (historyData.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Chưa ghi nhận lịch sử triển khai nào cho chứng chỉ này.</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = rows.map(h => {
-        const duration = h.duration_seconds !== null ? `${Math.round(h.duration_seconds)}s` : '--';
-        const badge = h.status === 'success'
-            ? '<span class="badge rounded-pill text-bg-success-subtle text-success px-2.5 border border-success-subtle">Thành công</span>'
-            : '<span class="badge rounded-pill text-bg-danger-subtle text-danger px-2.5 border border-danger-subtle">Thất bại</span>';
-
+    tableBody.innerHTML = historyData.map(h => {
+        let badgeClass = h.status === 'success' ? 'bg-success' : 'bg-danger';
         return `
             <tr>
-                <td class="ps-3 font-monospace">${h.started_at}</td>
-                <td class="text-muted">${h.triggered_by}</td>
-                <td class="font-monospace">${duration}</td>
-                <td>${badge}</td>
-                <td class="pe-3 text-end">
-                    <button class="btn btn-sm btn-outline-primary btn-view-log-trigger" data-history-id="${h.id}" title="Xem chi tiết log">
+                <td class="font-monospace small">#${h.id}</td>
+                <td><span class="badge ${badgeClass}">${h.status_display}</span></td>
+                <td class="small">${h.triggered_by}</td>
+                <td class="font-monospace small">${h.started_at}</td>
+                <td class="font-monospace small">${h.finished_at || '--:--'}</td>
+                <td class="text-center">
+                    <button class="btn btn-outline-secondary btn-sm btn-view-log-trigger py-0 px-2 fw-semibold" 
+                            data-history-id="${h.id}" title="Xem chi tiết log">
                         <i class="bi bi-eye"></i> Log
                     </button>
                 </td>
@@ -152,13 +278,15 @@ async function viewHistoryLog(historyId) {
     const url = window.CERT_DETAIL_URLS.apiGetDeployHistoryDetailTemplate.replace('999999999', historyId);
     const contentBox = document.getElementById('history-log-content');
 
-    contentBox.textContent = "Đang tải dữ liệu log từ cơ sở dữ liệu...";
+    if (contentBox) {
+        contentBox.textContent = "Đang tải dữ liệu log từ cơ sở dữ liệu...";
+    }
     toggleModal('history-log-modal', true);
 
     const result = await fetchJSON(url, { method: 'GET' });
-    if (result.ok) {
+    if (result.ok && contentBox) {
         contentBox.textContent = result.data.log_snapshot || '(Lần deploy này không ghi nhận cấu hình log lưu lại.)';
-    } else {
+    } else if (contentBox) {
         contentBox.textContent = result.data.error || 'Lỗi hệ thống: Không thể kết nối để lấy log.';
     }
 }
@@ -172,9 +300,31 @@ function lockDeployButton(shouldLock) {
     btn.disabled = shouldLock;
     if (shouldLock) {
         btn.classList.add('disabled');
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Đang deploy...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Đang triển khai...';
     } else {
         btn.classList.remove('disabled');
         btn.innerHTML = '<i class="bi bi-rocket-takeoff me-1"></i>Triển khai ngay lên Zimbra';
+    }
+}
+
+/**
+ * Cập nhật màu sắc CSS & Text động cho Badge Trạng thái hiện tại
+ */
+function updateStatusBadge(status, displayText) {
+    const badge = document.getElementById('cert-status');
+    if (!badge) return;
+
+    badge.innerText = displayText;
+    // Khôi phục các class CSS của Bootstrap sub-colors về mặc định trước khi gán mới
+    badge.className = "fw-semibold text-uppercase px-2 py-1 rounded small";
+
+    if (status === 'deployed') {
+        badge.classList.add('bg-success-subtle', 'text-success-emphasis');
+    } else if (status === 'deploying') {
+        badge.classList.add('bg-warning-subtle', 'text-warning-emphasis');
+    } else if (status === 'failed') {
+        badge.classList.add('bg-danger-subtle', 'text-danger-emphasis');
+    } else {
+        badge.classList.add('bg-secondary-subtle', 'text-secondary-emphasis');
     }
 }

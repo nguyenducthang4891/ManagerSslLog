@@ -2,6 +2,7 @@
 views.py - Fixed version with proper user creation logic
 Phân biệt rõ ràng: Tenant Admin vs Superuser
 """
+from datetime import timedelta
 
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
@@ -9,7 +10,11 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password as django_validate_password
 from django.db import IntegrityError
+from django.utils import timezone
 
+from apps.core_networks.services import DomainService, ZimbraServerService
+from apps.ssl_manager.models import SSLCertificate
+from apps.ssl_manager.services import SSLLifecycleService
 from apps.tenants.models import Tenant, TenantUser
 from apps.tenants.services import AuthService, TenantUserService, TenantService
 from django.contrib.auth import get_user_model, authenticate, login, logout
@@ -54,8 +59,43 @@ def logout_action(request):
 
 @login_required(login_url='login')
 def dashboard_view(request):
-    """Trang dashboard chính"""
-    return render(request, 'dashboard.html')
+    # 1. Lấy danh sách các đối tượng theo phân quyền người dùng (Tenant / Superuser)
+    domains = DomainService.get_list(request.user)
+    servers = ZimbraServerService.get_list(request.user)
+    certificates = SSLLifecycleService.get_list(request.user)
+
+    # 2. Đếm số lượng tổng quan
+    total_domains = domains.count() if hasattr(domains, 'count') else len(domains)
+    total_servers = servers.count() if hasattr(servers, 'count') else len(servers)
+    total_ssl = certificates.count() if hasattr(certificates, 'count') else len(certificates)
+
+    # 3. Tính toán số lượng chứng chỉ SSL sắp hết hạn (Thời gian hợp lệ còn lại <= 30 ngày)
+    # Ngưỡng cảnh báo lấy từ cấu hình Model SSLCertificate.EXPIRY_WARNING_DAYS (30 ngày)
+    warning_days = getattr(SSLCertificate, 'EXPIRY_WARNING_DAYS', 30)
+    expiry_threshold = timezone.now() + timedelta(days=warning_days)
+
+    # Lọc các chứng chỉ có ngày hết hạn nằm trong khoảng từ hiện tại đến 30 ngày tới
+    # Lưu ý: Loại trừ luôn các chứng chỉ trạng thái lỗi nặng hoặc chưa hợp lệ nếu cần thiết
+    if hasattr(certificates, 'filter'):
+        ssl_expiring_soon = certificates.filter(
+            valid_to__gt=timezone.now(),
+            valid_to__lte=expiry_threshold
+        ).count()
+    else:
+        ssl_expiring_soon = sum(
+            1 for cert in certificates
+            if cert.valid_to and timezone.now() < cert.valid_to <= expiry_threshold
+        )
+
+    # 4. Đóng gói dữ liệu truyền sang giao diện HTML template
+    context = {
+        'total_domains': total_domains,
+        'total_servers': total_servers,
+        'total_ssl': total_ssl,
+        'ssl_expiring_soon': ssl_expiring_soon,
+    }
+
+    return render(request, 'dashboard.html', context)
 
 
 # ============================================================================

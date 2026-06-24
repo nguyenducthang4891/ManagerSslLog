@@ -8,6 +8,8 @@ from apps.ssl_manager.services import ZimbraDeployService
 from apps.core_networks.services import DomainService
 import threading
 
+from apps.ssl_manager.services.ssl_checker import SSLCheckService
+
 
 @login_required(login_url='login')
 def cert_list_view(request):
@@ -17,12 +19,21 @@ def cert_list_view(request):
 
 
 @login_required(login_url='login')
+# apps/ssl_manager/views.py
+
+@login_required(login_url='login')
 def cert_detail_view(request, cert_id):
     try:
         cert = SSLLifecycleService.get_detail(request.user, cert_id)
-        # MỚI: lấy kèm 10 lần deploy gần nhất để hiển thị lịch sử trên giao diện.
         history = cert.deploy_history.select_related('triggered_by')[:10]
-        return render(request, 'ssl/cert_detail.html', {'cert': cert, 'deploy_history': history})
+        # BỔ SUNG: Lấy danh sách domain để phục vụ modal update thông tin
+        domains = DomainService.get_list(request.user)
+
+        return render(request, 'ssl/cert_detail.html', {
+            'cert': cert,
+            'deploy_history': history,
+            'domains': domains  # Truyền sang template
+        })
     except ValidationError as e:
         return render(request, 'errors/403.html', {'error': e.message}, status=403)
 
@@ -133,3 +144,48 @@ def api_get_deploy_history_detail(request, history_id):
         'log_snapshot': history.log_snapshot,
         'status': history.status,
     })
+
+
+@login_required(login_url='login')
+def api_update_cert(request, cert_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        SSLLifecycleService.update_certificate(
+            user=request.user,
+            cert_id=cert_id,
+            domain_id=int(request.POST.get('domain_id')),
+            name=request.POST.get('name'),
+            root_file=request.FILES.get('root_cert'),
+            inter_file=request.FILES.get('inter_cert'),
+            server_file=request.FILES.get('server_cert'),
+            key_file=request.FILES.get('private_key')
+        )
+        return JsonResponse({'message': 'Cập nhật thông tin chứng chỉ thành công.'})
+    except ValidationError as e:
+        return JsonResponse({'error': str(e.message)}, status=400)
+
+
+@login_required(login_url='login')
+def api_delete_cert(request, cert_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        SSLLifecycleService.delete_certificate(request.user, cert_id)
+        return JsonResponse({'message': 'Xóa chứng chỉ thành công.'})
+    except ValidationError as e:
+        return JsonResponse({'error': str(e.message)}, status=400)
+
+
+@login_required(login_url='login')
+def api_check_ssl_live(request, cert_id):
+    """API Check trực tiếp trạng thái cài đặt SSL thực tế của Domain"""
+    try:
+        cert = SSLLifecycleService.get_detail(request.user, cert_id)
+        # Thực hiện kiểm tra live kết nối tới domain.name
+        result = SSLCheckService.check_live_ssl(cert.domain.name)
+        return JsonResponse(result)
+    except ValidationError as e:
+        return JsonResponse({'error': str(e.message)}, status=403)
