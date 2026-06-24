@@ -72,17 +72,17 @@
     const TENANT_ID = {{ tenant_id }};
 
     /**
-     * PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll), đồng bộ cơ
-     * chế IntersectionObserver với monitor_audit.js/monitor_mailbox.js --
-     * NHƯNG khác 1 điểm quan trọng: API api_host_logs trả về "items" là
-     * TOÀN BỘ danh sách tích lũy từ đầu tới trang hiện tại (không phải chỉ
-     * phần mới của trang đó -- xem giải thích trong views_metric.py:
-     * api_host_logs), vì MetricService.query() không hỗ trợ "from"/"size"
-     * thật. Vì vậy mỗi lần tải thêm, ta RENDER LẠI TOÀN BỘ bảng từ "items"
-     * mới nhận được, không "nối" (append) thêm dòng như 2 trang kia.
+     * PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll) -- ES THẬT.
+     * api_host_logs giờ dùng MetricService.query_paginated() (xem
+     * services/metric.py), severity_filter được đẩy xuống ES dưới dạng
+     * range query, nên "total"/"total_pages" chính xác 100% và mỗi trang
+     * "items" CHỈ chứa bản ghi MỚI của trang đó -- ta APPEND (nối) thêm
+     * dòng vào tbody, KHÔNG render lại toàn bộ (đồng bộ đúng cơ chế với
+     * monitor_audit.js/monitor_mailbox.js).
      */
-    let hostDetailPage = 1;
-    let hostDetailHasMore = true;
+    const HOST_DETAIL_PAGE_SIZE = 50;
+    let hostDetailCurrentPage = 1;
+    let hostDetailTotalPages = 1;
     let hostDetailIsLoading = false;
     let hostDetailObserver = null;
 
@@ -117,18 +117,19 @@
 
     /** Đổi filter (giờ/severity) -- quay về trang 1, xóa bảng, tải lại từ đầu. */
     function resetAndLoadHostDetail() {
-        hostDetailPage = 1;
-        hostDetailHasMore = true;
+        hostDetailCurrentPage = 1;
+        hostDetailTotalPages = 1;
         const tbody = document.getElementById('hostDetailLogBody');
         tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
-        loadHostDetailLogs();
+        loadHostDetailPage(true);
     }
 
-    /** Observer gọi hàm này khi cuộn gần cuối bảng. */
+    /** Observer gọi hàm này khi cuộn gần cuối bảng -- chỉ tải tiếp nếu còn trang và không đang tải. */
     function loadMoreHostDetail() {
-        if (hostDetailIsLoading || !hostDetailHasMore) return;
-        hostDetailPage += 1;
-        loadHostDetailLogs();
+        if (hostDetailIsLoading) return;
+        if (hostDetailCurrentPage >= hostDetailTotalPages) return; // đã tải hết
+        hostDetailCurrentPage += 1;
+        loadHostDetailPage(false);
     }
 
     /**
@@ -170,62 +171,91 @@
         `;
     }
 
-    function renderHostDetailFooter(state, total) {
+    /**
+     * isFirstLoad=true: xóa sạch tbody rồi render items từ đầu. isFirstLoad=
+     * false: giữ nguyên dòng đã có, CHÈN thêm dòng mới vào TRƯỚC dòng
+     * sentinel (luôn phải nằm cuối cùng để observer tiếp tục theo dõi
+     * đúng vị trí) -- giống appendMailboxRows()/appendAuditRows().
+     */
+    function appendHostDetailRows(items, isFirstLoad) {
+        const tbody = document.getElementById('hostDetailLogBody');
+
+        if (isFirstLoad) {
+            if (items.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
+                ensureHostDetailSentinel();
+                return;
+            }
+            tbody.innerHTML = items.map(hostDetailRowHtml).join('');
+            ensureHostDetailSentinel();
+            return;
+        }
+
+        if (items.length === 0) return;
+
+        const sentinel = document.getElementById('hostDetailScrollSentinel');
+        const rowsHtml = items.map(hostDetailRowHtml).join('');
+        if (sentinel) {
+            sentinel.insertAdjacentHTML('beforebegin', rowsHtml);
+        } else {
+            tbody.insertAdjacentHTML('beforeend', rowsHtml);
+            ensureHostDetailSentinel();
+        }
+    }
+
+    function renderHostDetailFooter(state, total, errorMessage) {
         const footer = document.getElementById('hostDetailLoadFooter');
         if (!footer) return;
 
         if (state === 'loading') {
             footer.innerHTML = `<div class="spinner-border spinner-border-sm me-2"></div>Đang tải thêm...`;
         } else if (state === 'error') {
-            footer.innerHTML = '';
-        } else if (!hostDetailHasMore) {
+            footer.innerHTML = `<span class="text-danger">${errorMessage || 'Lỗi tải dữ liệu.'}</span>`;
+        } else if (hostDetailCurrentPage >= hostDetailTotalPages) {
             footer.innerHTML = total > 0 ? `Đã hiển thị tất cả ${total} bản ghi.` : '';
         } else {
             footer.innerHTML = `<small>Kéo xuống để tải thêm...</small>`;
         }
     }
 
-    async function loadHostDetailLogs() {
+    /**
+     * isFirstLoad=true: trang 1, tbody đang được XÓA SẠCH và render lại từ
+     * đầu. isFirstLoad=false: trang kế tiếp do observer kích hoạt, NỐI
+     * thêm dòng vào tbody hiện có.
+     */
+    async function loadHostDetailPage(isFirstLoad) {
         const hours = document.getElementById('detailHours').value;
         const severity = document.getElementById('detailSeverity').value;
-        const tbody = document.getElementById('hostDetailLogBody');
 
         hostDetailIsLoading = true;
         renderHostDetailFooter('loading');
 
-        // THAY ĐỔI: tenant_id giờ nằm trong PATH, không còn query string.
-        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}&page=${hostDetailPage}`;
+        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}&page=${hostDetailCurrentPage}&page_size=${HOST_DETAIL_PAGE_SIZE}`;
         if (severity) url += `&severity=${severity}`;
 
         try {
             const res = await fetch(url).then(r => r.json());
 
             if (res.error) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
-                hostDetailHasMore = false;
-                renderHostDetailFooter('error');
+                const tbody = document.getElementById('hostDetailLogBody');
+                if (isFirstLoad) {
+                    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
+                }
+                renderHostDetailFooter('error', 0, res.error);
+                if (!isFirstLoad) hostDetailCurrentPage -= 1;
                 return;
             }
 
-            hostDetailHasMore = !!res.has_more;
-
-            if (!res.items || res.items.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
-                renderHostDetailFooter('idle', 0);
-                return;
-            }
-
-            // "items" là TOÀN BỘ danh sách tích lũy (xem docstring đầu
-            // script) -- render lại từ đầu, không append.
-            tbody.innerHTML = res.items.map(hostDetailRowHtml).join('');
-            ensureHostDetailSentinel();
-            renderHostDetailFooter('idle', res.items.length);
+            hostDetailTotalPages = res.total_pages || 1;
+            appendHostDetailRows(res.items || [], isFirstLoad);
+            renderHostDetailFooter('idle', res.total || 0);
         } catch (e) {
-            if (hostDetailPage === 1) {
+            const tbody = document.getElementById('hostDetailLogBody');
+            if (isFirstLoad) {
                 tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
             }
-            hostDetailHasMore = false;
-            renderHostDetailFooter('error');
+            renderHostDetailFooter('error', 0, 'Lỗi hệ thống không thể nạp tệp dữ liệu.');
+            if (!isFirstLoad) hostDetailCurrentPage -= 1;
         } finally {
             hostDetailIsLoading = false;
         }

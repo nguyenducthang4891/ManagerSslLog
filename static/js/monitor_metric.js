@@ -77,26 +77,29 @@ function renderHostDetailLink(hostname) {
     return `<a href="${url}" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-eye"></i></a>`;
 }
 
+/**
+ * Bản FULL-WIDTH của renderHostDetailLink(), dùng cho footer card ở Dạng
+ * lưới (renderGridView) -- nhiều không gian hơn <td> ở Dạng bảng nên hiển
+ * thị rõ chữ "Xem chi tiết log" thay vì chỉ icon nhỏ. Dùng LẠI đúng logic
+ * xác định tenantId (không lặp lại, không tách rời 2 nguồn sự thật).
+ */
+function renderHostDetailLinkBlock(hostname) {
+    const tenantId = window.MONITOR_IS_SUPERUSER ? window.MONITOR_TENANT_ID : window.MONITOR_USER_TENANT_ID;
+
+    if (!tenantId) {
+        return `<button class="btn btn-sm btn-outline-secondary w-100 disabled" disabled title="Không xác định được tổ chức"><i class="bi bi-eye-slash me-1"></i>Không xác định được tổ chức</button>`;
+    }
+
+    const url = `/monitor/tenant/${encodeURIComponent(tenantId)}/host/${encodeURIComponent(hostname)}/detail/`;
+    return `<a href="${url}" class="btn btn-sm btn-outline-dark w-100"><i class="bi bi-eye me-1"></i>Xem chi tiết log</a>`;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (hasActiveScope()) {
         loadMetricsByHTTP();
         initWebSocket();
     } else {
         renderSelectTenantPlaceholder();
-    }
-
-    const filterForm = document.getElementById('filterForm');
-    if (filterForm) {
-        filterForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (!hasActiveScope()) return;
-            if (isPollingActive) {
-                loadMetricsByHTTP();
-                resetCountdown();
-            } else {
-                loadMetricsByHTTP();
-            }
-        });
     }
 
     const btnRefresh = document.getElementById('btnRefresh');
@@ -259,17 +262,11 @@ async function loadMetricsByHTTP() {
 /**
  * Xử lý gom nhóm logic Render dùng chung cho cả Socket lẫn HTTP.
  *
- * QUAN TRỌNG: áp lại filter severity/hostname hiện tại của form NGAY TẠI
- * ĐÂY -- vì dữ liệu đẩy qua WebSocket (mỗi 5s, từ Celery Beat quét toàn bộ
- * tenant) KHÔNG biết người dùng đang lọc gì trên UI. Nếu không áp filter
- * client-side, mỗi lần WS đẩy data mới sẽ XÓA MẤT kết quả filter người
- * dùng vừa bấm tìm kiếm, hiện lại toàn bộ host không lọc -- đây là lỗi UX
- * đã xảy ra trước khi sửa.
- *
- * Riêng filter "khoảng thời gian" (hours/days) KHÔNG áp được ở đây, vì
- * Celery Beat luôn quét cố định 24h gần nhất (xem services/metric.py +
- * tasks/metric.py) -- muốn xem khoảng giờ khác phải gọi lại HTTP
- * (loadMetricsByHTTP), không thể lọc từ data WS đã nhận.
+ * ĐÃ BỎ FILTER (severity/hostname/khoảng giờ): trang metric.html giờ là
+ * dashboard REALTIME THUẦN -- luôn hiển thị TOÀN BỘ host của tenant đang
+ * xem, không có khái niệm "lọc rồi giữ kết quả qua mỗi lần cập nhật". Mỗi
+ * lần WS đẩy data mới (hoặc HTTP load), danh sách hiển thị luôn là TOÀN BỘ
+ * host mới nhất, không qua bước lọc nào.
  */
 function processAndRender(data) {
     const rawItems = data.items || [];
@@ -280,28 +277,11 @@ function processAndRender(data) {
             uniqueHostsMap.set(item.hostname, item);
         }
     });
-    let finalHostsList = Array.from(uniqueHostsMap.values());
-
-    finalHostsList = applyClientSideFilters(finalHostsList);
+    const finalHostsList = Array.from(uniqueHostsMap.values());
 
     updateSummaryCounters(finalHostsList);
     renderGridView(finalHostsList);
     renderTableView(finalHostsList);
-}
-
-/** Áp filter severity + hostname (lowercase, khớp cách tìm theo chuỗi con) theo giá trị form hiện tại. */
-function applyClientSideFilters(hosts) {
-    const severityEl = document.getElementById('filterSeverity');
-    const hostnameEl = document.getElementById('filterHostname');
-
-    const severityValue = severityEl ? severityEl.value : '';
-    const hostnameValue = hostnameEl ? hostnameEl.value.trim().toLowerCase() : '';
-
-    return hosts.filter(h => {
-        if (severityValue && h.severity !== severityValue) return false;
-        if (hostnameValue && !(h.hostname || '').toLowerCase().includes(hostnameValue)) return false;
-        return true;
-    });
 }
 
 // =========================================================================
@@ -330,7 +310,7 @@ function renderGridView(hosts) {
     if (!container) return;
 
     if (hosts.length === 0) {
-        container.innerHTML = `<div class="col-12 text-center text-muted py-5"><i class="bi bi-inbox fs-2"></i><br>Không có máy chủ nào thỏa mãn điều kiện lọc.</div>`;
+        container.innerHTML = `<div class="col-12 text-center text-muted py-5"><i class="bi bi-inbox fs-2"></i><br>Chưa có dữ liệu giám sát máy chủ nào.</div>`;
         return;
     }
 
@@ -370,6 +350,9 @@ function renderGridView(hosts) {
                             <div><i class="bi bi-envelope-paper me-1"></i>Queue: <span class="badge bg-secondary">${h.queue || 0}</span></div>
                             <div class="${zimbraStatus}">Lỗi dịch vụ: ${h.zimbra_not_running_count || 0}</div>
                         </div>
+                        <div class="pt-2 mt-2 border-top">
+                            ${renderHostDetailLinkBlock(h.hostname)}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -382,7 +365,7 @@ function renderTableView(hosts) {
     if (!tbody) return;
 
     if (hosts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">Không có máy chủ thỏa mãn điều kiện.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-4">Chưa có dữ liệu giám sát máy chủ nào.</td></tr>`;
         return;
     }
 
@@ -406,20 +389,18 @@ function renderTableView(hosts) {
     }).join('');
 }
 
+/**
+ * ĐÃ BỎ FILTER: chỉ còn tenant_id (superuser) -- không còn severity,
+ * hostname, hay khoảng giờ tùy chọn. MetricService.query() tự dùng mặc
+ * định 24h gần nhất khi không truyền hours/days (xem resolve_time_range
+ * trong services/base.py), khớp đúng với khoảng Celery Beat đang quét cho
+ * WebSocket -- không cần truyền lại từ client nữa.
+ */
 function buildQueryParams() {
-    const rangeTypeEl = document.getElementById('filterRangeType');
-    const rangeValueEl = document.getElementById('filterRangeValue');
-    const severityEl = document.getElementById('filterSeverity');
-    const hostnameEl = document.getElementById('filterHostname');
-
-    const rangeType = rangeTypeEl ? rangeTypeEl.value : 'hours';
-    let rangeValue = rangeValueEl ? rangeValueEl.value.trim() : '24';
-    if (!rangeValue || isNaN(rangeValue)) rangeValue = '24';
-
-    let params = `${rangeType}=${rangeValue}`;
-    if (severityEl && severityEl.value) params += `&severity=${severityEl.value}`;
-    if (hostnameEl && hostnameEl.value.trim()) params += `&hostname=${encodeURIComponent(hostnameEl.value.trim().toLowerCase())}`;
-    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += `&tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
+    let params = '';
+    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) {
+        params += `tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
+    }
     return params;
 }
 

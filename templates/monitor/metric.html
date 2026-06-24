@@ -101,40 +101,6 @@
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body">
-        <form id="filterForm" class="row g-2 align-items-end">
-            <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted">Loại thời gian</label>
-                <select class="form-select form-select-sm" id="filterRangeType">
-                    <option value="hours" selected>Theo giờ</option>
-                    <option value="days">Theo ngày</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted" id="filterRangeValueLabel">Số giờ</label>
-                <input type="number" class="form-control form-control-sm font-monospace" id="filterRangeValue" value="24" min="1">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label small fw-bold text-muted">Mức độ lỗi</label>
-                <select class="form-select form-select-sm" id="filterSeverity">
-                    <option value="">-- Tất cả mức độ --</option>
-                    <option value="ok">Hoạt động ổn định (OK)</option>
-                    <option value="warning">Cảnh báo (Warning)</option>
-                    <option value="critical">Nguy cấp (Critical)</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small fw-bold text-muted">Tên Máy Chủ (Hostname)</label>
-                <input type="text" class="form-control form-control-sm" id="filterHostname" placeholder="Nhập tên host cần lọc...">
-            </div>
-            <div class="col-md-1 text-end">
-                <button type="submit" class="btn btn-dark btn-sm w-100"><i class="bi bi-search"></i></button>
-            </div>
-        </form>
-    </div>
-</div>
-
 <div id="view-grid-container" class="row g-3">
     </div>
 
