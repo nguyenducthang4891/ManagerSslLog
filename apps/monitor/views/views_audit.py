@@ -42,17 +42,24 @@ def audit_list(request):
 def api_query_audit(request):
     """
     API JSON cho bảng audit log. Query params: hours|days, action_category,
-    keyword (tìm theo admin_email/auth_email), tenant_id (chỉ superuser).
+    keyword (tìm theo admin_email/auth_email), page, page_size (phân trang
+    thật qua ES from/size -- dùng cho cơ chế "tải thêm khi kéo scroll"),
+    tenant_id (chỉ superuser).
     """
     tenant, allowed = _resolve_tenant_from_request(request)
 
     if request.user.is_superuser and not allowed:
-        return JsonResponse({"total": 0, "items": [], "elk_cluster": None})
+        return JsonResponse({
+            "total": 0, "items": [], "page": 1, "page_size": 50,
+            "total_pages": 1, "elk_cluster": None,
+        })
 
     hours = _parse_int(request.GET.get('hours'))
     days = _parse_int(request.GET.get('days'))
     action_category = request.GET.get('action_category') or None
     keyword = request.GET.get('keyword') or None
+    page = _parse_int(request.GET.get('page'), default=1)
+    page_size = _parse_int(request.GET.get('page_size'), default=50)
 
     try:
         data = AuditService.query(
@@ -62,6 +69,8 @@ def api_query_audit(request):
             days=days,
             action_category=action_category,
             keyword=keyword,
+            page=page,
+            page_size=page_size,
         )
         return JsonResponse(data)
     except ValidationError as e:

@@ -38,9 +38,19 @@
                     <td class="font-monospace small">{{ domain.server.name }} ({{ domain.server.hostname }})</td>
                     <td>
                         {% if domain.is_active %}
-                        <span class="badge rounded-pill text-bg-success">Hoạt động</span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">Hoạt động</span>
                         {% else %}
-                        <span class="badge rounded-pill text-bg-danger">Tạm ngưng</span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Tạm ngưng</span>
+                        {% endif %}
+
+                        {% if domain.is_created_on_zimbra %}
+                        <span class="badge bg-info-subtle text-info border border-info-subtle ms-1" title="Đã đồng bộ thực tế trên server">
+                            <i class="bi bi-cloud-check-fill me-1"></i>Zimbra Live
+                        </span>
+                        {% else %}
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" title="Chỉ tồn tại cấu hình logic trên DB, chưa tạo trên Mail Server">
+                            <i class="bi bi-database-fill me-1"></i>DB Only
+                        </span>
                         {% endif %}
                     </td>
                     <td class="text-center pe-3">
@@ -91,8 +101,9 @@
                     <div class="mb-3">
                         <label class="form-label fw-semibold small">Tên miền (mail.company.com)</label>
                         <input type="text" id="dom_name" placeholder="mail.yourdomain.com" required class="form-control">
+                        <div class="invalid-feedback" id="dom_name_feedback">Tên miền không đúng định dạng.</div>
                     </div>
-                    <div class="mb-1">
+                    <div class="mb-3">
                         <label class="form-label fw-semibold small">Chọn Mail Server điều phối hạ tầng</label>
                         <select id="dom_server" required class="form-select">
                             <option value="">-- Chọn máy chủ phụ trách --</option>
@@ -101,7 +112,16 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="form-text">Khi đổi server, hệ thống sẽ tự kiểm tra và tạo domain trên Zimbra server mới nếu chưa tồn tại.</div>
+
+                    <div id="zimbra-provision-container" class="mb-2 form-check form-switch p-3 border rounded bg-light">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="create_on_zimbra" id="dom_create_on_zimbra" checked>
+                        <label class="form-check-label fw-semibold small text-dark" for="dom_create_on_zimbra">
+                            Đồng bộ khởi tạo trực tiếp trên Zimbra Server vật lý
+                        </label>
+                        <div class="form-text text-muted x-small mt-1" style="font-size: 0.785rem; line-height: 1.3;">
+                            Nếu tắt, hệ thống chỉ lưu cấu hình luận lý ảo trên Database (DB Only).
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
@@ -123,22 +143,20 @@
             <form id="assign-tenant-form">
                 <div class="modal-body">
                     <input type="hidden" id="assign_dom_id">
-                    <p class="small text-muted">Gán tên miền <span id="assign-dom-name" class="fw-bold text-primary"></span> vào không gian lưu trữ của Tenant độc lập.</p>
+                    <p class="small text-muted">Gán tên miền <span id="assign-dom-name" class="fw-bold text-primary"></span> vào không gian lưu trữ.</p>
                     <label class="form-label fw-semibold small">Chọn Tổ chức (Tenant) nhận bàn giao</label>
                     <select id="assign_tenant_id" class="form-select">
-                        <option value="">-- Để trống (Giải phóng domain về trạng thái Tự Do) --</option>
+                        <option value="">-- Để trống (Giải phóng domain) --</option>
                         {% for t in tenants %}
                         <option value="{{ t.id }}">{{ t.name }} ({{ t.code }})</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="modal-footer justify-content-between">
-                    <button type="button" id="btn-quick-detach" class="btn btn-link text-danger btn-sm">
-                        Gỡ bỏ Tenant hiện tại ngay
-                    </button>
+                    <button type="button" id="btn-quick-detach" class="btn btn-link text-danger btn-sm">Gỡ bỏ Tenant</button>
                     <div>
                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
-                        <button type="submit" class="btn btn-primary btn-sm">Xác nhận Lưu</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Xác nhận</button>
                     </div>
                 </div>
             </form>
@@ -150,6 +168,7 @@
 
 {% block extra_js %}
 <script>
+    // FIX: Sử dụng thẻ template url của django để tự sinh endpoint chính xác dựa vào /networks/ prefix của bạn
     window.DOMAIN_URLS = {
         apiAddDomain: "{% url 'api_add_domain' %}",
         apiAssignTenant: "{% url 'api_assign_domain_tenant' %}"

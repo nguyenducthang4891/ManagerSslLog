@@ -102,6 +102,7 @@ def api_test_soap_connection(request, server_id):
         return JsonResponse({'success': False, 'error': f"Lỗi kết nối SOAP: {str(e)}"}, status=400)
 
 
+# Trong views.py
 @login_required(login_url='login')
 def api_add_domain(request):
     if request.method != 'POST':
@@ -109,12 +110,16 @@ def api_add_domain(request):
     if not request.user.tenant and not request.user.is_superuser:
         return JsonResponse({'error': 'Tài khoản không hợp lệ.'}, status=403)
 
+    # LẤY GIÁ TRỊ CHECKBOX: Nếu có truyền lên bất kỳ giá trị nào (ví dụ 'on' hoặc 'true') -> True, ngược lại -> False
+    create_on_zimbra = request.POST.get('create_on_zimbra') is not None
+
     try:
         DomainService.add_domain(
             tenant=request.user.tenant,
             domain_name=request.POST.get('name'),
             server_id=int(request.POST.get('server_id')),
             is_superuser=request.user.is_superuser,
+            create_on_zimbra=create_on_zimbra  # Truyền biến này vào service
         )
         return JsonResponse({'message': 'Đăng ký tên miền thành công.'})
     except ValidationError as e:

@@ -11,7 +11,7 @@ hay không", không phải chỉ số liên tục.
 from apps.tenants.models import Tenant
 from apps.monitor.services.base import (
     ELKConnectionService, resolve_time_range, base_filter,
-    require_tenant_scope, get_effective_tenant, run_search,
+    require_tenant_scope, get_effective_tenant, run_search_paginated,
 )
 
 INDEX_PATTERN = "log-audit-*"
@@ -38,7 +38,8 @@ class AuditService:
               hours: int | None = None, days: int | None = None,
               action_category: str | None = None,
               keyword: str | None = None,
-              page_size: int = 200) -> dict:
+              page: int = 1,
+              page_size: int = 50) -> dict:
         """
         keyword: tìm theo admin_email HOẶC auth_email (ai thực hiện hành
         động) -- dùng "should" để khớp 1 trong 2, vì với hành động "Auth"
@@ -46,6 +47,13 @@ class AuditService:
         admin sửa tài khoản người khác thì admin_email (người thực hiện)
         khác target_email (người bị tác động) -- người dùng quan tâm "AI
         đã làm" nên ưu tiên admin_email/auth_email, không phải target_email.
+
+        page / page_size: phân trang THẬT qua "from"/"size" của ES (xem
+        run_search_paginated trong base.py) -- dùng cho cơ chế "tải thêm
+        khi kéo scroll" trên UI (monitor_audit.js), KHÁC với hành vi cũ là
+        luôn lấy 1 lần page_size bản ghi đầu tiên rồi dừng. Trả thêm
+        "total" là tổng số bản ghi khớp điều kiện trên TOÀN BỘ index, để
+        UI biết khi nào đã tải hết (không còn trang để load thêm).
         """
         require_tenant_scope(user)
         effective_tenant = get_effective_tenant(user, tenant)
@@ -71,7 +79,6 @@ class AuditService:
         if action_category:
             filter_.append({"match": {"action_category": action_category}})
 
-        print("Filter gửi sang Elasticsearch:", filter_)
         query_body = {"bool": {"filter": filter_}}
 
         if keyword:
@@ -84,7 +91,10 @@ class AuditService:
             ]
             query_body["bool"]["minimum_should_match"] = 1
 
-        hits = run_search(client, INDEX_PATTERN, query_body, cluster.name, size=page_size)
+        hits, total = run_search_paginated(
+            client, INDEX_PATTERN, query_body, cluster.name,
+            page=page, page_size=page_size,
+        )
 
         items = []
         for hit in hits:
@@ -92,7 +102,14 @@ class AuditService:
             doc["_id"] = hit["_id"]
             items.append(doc)
 
-        return {"total": len(items), "items": items, "elk_cluster": cluster.name}
+        return {
+            "total": total,
+            "items": items,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size if page_size else 1,
+            "elk_cluster": cluster.name,
+        }
 
     @staticmethod
     def get_log_detail(user, doc_id: str, tenant: Tenant | None = None) -> dict:
@@ -114,8 +131,10 @@ class AuditService:
         if effective_tenant is not None:
             filter_.append({"match": {"tenant_code": effective_tenant.code.lower()}})
 
-        hits = run_search(client, INDEX_PATTERN, {"bool": {"filter": filter_}},
-                           cluster.name, size=1)
+        hits, _total = run_search_paginated(
+            client, INDEX_PATTERN, {"bool": {"filter": filter_}},
+            cluster.name, page=1, page_size=1,
+        )
 
         if not hits:
             return None

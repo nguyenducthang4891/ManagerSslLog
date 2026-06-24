@@ -1,5 +1,5 @@
 from django.urls import path
-from apps.monitor.views import views_metric, config, views_audit
+from apps.monitor.views import views_metric, config, views_audit, views_mailbox
 
 urlpatterns = [
     # Template Views (Giao diện hiển thị)
@@ -43,4 +43,14 @@ urlpatterns += [
     # tenant_id trong path giống pattern host_logs, validate quyền tương tự.
     path('api/tenant/<int:tenant_id>/audit/<str:doc_id>/',
          views_audit.api_audit_log_detail, name='api_audit_log_detail'),
+]
+
+
+urlpatterns += [
+    path('mailbox/', views_mailbox.mailbox_list, name='monitor_mailbox_list'),
+    path('api/mailbox/', views_mailbox.api_query_mailbox, name='api_query_mailbox'),
+    # Lấy 1 document mailbox đầy đủ theo _id -- dùng cho modal JSON chi tiết.
+    # tenant_id trong path giống pattern audit/host_logs, validate quyền tương tự.
+    path('api/tenant/<int:tenant_id>/mailbox/<str:doc_id>/',
+         views_mailbox.api_mailbox_log_detail, name='api_mailbox_log_detail'),
 ]

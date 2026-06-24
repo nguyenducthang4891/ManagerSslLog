@@ -14,6 +14,8 @@ urlpatterns = [
     # MỚI: cho phép Tenant Admin tự đổi vai trò nhân viên trong tổ chức mình.
     path('api/users/<int:user_id>/role/', views.api_change_user_role, name='api_change_user_role'),
 
+
+
     path('tenants/', views.tenant_list, name='tenant_list'),
     path('api/tenants/add/', views.api_add_tenant, name='api_add_tenant'),
     path('api/tenants/<int:tenant_id>/edit/', views.api_edit_tenant, name='api_edit_tenant'),

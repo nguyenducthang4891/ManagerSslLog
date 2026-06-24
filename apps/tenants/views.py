@@ -1,16 +1,31 @@
+"""
+views.py - Fixed version with proper user creation logic
+Phân biệt rõ ràng: Tenant Admin vs Superuser
+"""
+
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password as django_validate_password
+from django.db import IntegrityError
 
-from apps.tenants.models import Tenant
+from apps.tenants.models import Tenant, TenantUser
 from apps.tenants.services import AuthService, TenantUserService, TenantService
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate, login, logout
 
 User = get_user_model()
+import logging
 
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# LOGIN & LOGOUT
+# ============================================================================
 
 def login_view(request):
+    """Trang đăng nhập"""
     if request.user.is_authenticated:
         return redirect('dashboard')
 
@@ -28,86 +43,307 @@ def login_view(request):
 
 
 def logout_action(request):
+    """Xử lý đăng xuất"""
     AuthService.logout_user(request)
     return redirect('login')
 
 
+# ============================================================================
+# DASHBOARD
+# ============================================================================
+
 @login_required(login_url='login')
 def dashboard_view(request):
+    """Trang dashboard chính"""
     return render(request, 'dashboard.html')
 
 
+# ============================================================================
+# ✅ USER LIST VIEW - Truyền tenants list cho superuser
+# ============================================================================
+
 @login_required(login_url='login')
 def user_list_view(request):
-    # FIX: bản gốc gọi service nhưng template dùng biến tên 'users' -- nếu service
-    # trả về key khác tên thì danh sách sẽ luôn trống trên giao diện. Đảm bảo
-    # context key khớp với những gì user_list.html sử dụng ({% for u in users %}).
+    """
+    Hiển thị danh sách nhân viên của tổ chức
+
+    Context:
+    - users: Danh sách TenantUser (filtered by role)
+    - all_tenants: Danh sách tất cả Tenant (chỉ cho Superuser)
+    """
+    # ✅ FIX: Lấy danh sách users với select_related để tránh N+1 query
     users = TenantUserService.get_list(request.user)
-    return render(request, 'tenants/user_list.html', {'users': users})
+
+    # ✅ NEW: Lấy danh sách tenants cho Superuser (dùng trong dropdown)
+    all_tenants = []
+    if request.user.is_superuser:
+        all_tenants = Tenant.objects.all().order_by('-created_at')
+
+    return render(request, 'tenants/user_list.html', {
+        'users': users,
+        'all_tenants': all_tenants  # ← NEW: Truyền danh sách tenants
+    })
 
 
-# --- API FBV ENDPOINTS ---
+# ============================================================================
+# ✅ API: CREATE STAFF
+# ============================================================================
+
 @login_required(login_url='login')
 def api_create_staff(request):
+    """
+    Tạo nhân viên mới
+
+    LOGIC:
+    - Tenant Admin: tự động gán tenant của họ (không cần POST tenant_id)
+    - Superuser: PHẢI chỉ định tenant_id trong POST
+
+    POST parameters:
+    - email: email của user mới (required)
+    - password: mật khẩu text (required)
+    - full_name: tên hiển thị (optional)
+    - tenant_id: ID tổ chức (required nếu superuser, auto-assign nếu tenant admin)
+
+    Response:
+    - Success: {'message': '...', 'user_id': <id>, 'tenant_id': <id>}
+    - Error: {'error': '...'}
+    """
+
+    # 1️⃣ CHECK METHOD
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-    if not request.user.is_superuser and request.user.role != 'tenant_admin':
-        return JsonResponse({'error': 'Bạn không có quyền thực hiện thao tác này.'}, status=403)
+    # 2️⃣ CHECK PERMISSION - Chỉ Tenant Admin hoặc Superuser
+    if not (request.user.is_superuser or request.user.role == TenantUser.ROLE_TENANT_ADMIN):
+        logger.warning(f"Unauthorized create_staff attempt by {request.user.email}")
+        return JsonResponse({
+            'error': 'Bạn không có quyền tạo nhân viên.'
+        }, status=403)
 
-    email = request.POST.get('email')
-    password = request.POST.get('password')
-    full_name = request.POST.get('full_name', '')
+    # 3️⃣ GET & VALIDATE INPUT
+    email = request.POST.get('email', '').strip()
+    password = request.POST.get('password', '').strip()
+    full_name = request.POST.get('full_name', '').strip()
 
+    # Validate input không trống
+    if not email or not password:
+        return JsonResponse({
+            'error': 'Email và mật khẩu là bắt buộc.'
+        }, status=400)
+
+    # 4️⃣ PHÂN NHÁNH: SUPERUSER vs TENANT ADMIN
     try:
-        user = TenantUserService.create_staff(request.user.tenant, email, password, full_name)
-        return JsonResponse({'message': 'Tạo nhân viên thành công', 'user_id': user.id})
-    except ValidationError as e:
-        return JsonResponse({'error': str(e.message)}, status=400)
+        if request.user.is_superuser:
+            # ===== SUPERUSER FLOW =====
+            logger.info(f"Superuser {request.user.email} creating staff user")
 
+            # ✅ RULE 1: Bắt buộc chỉ định tenant_id
+            tenant_id = request.POST.get('tenant_id', '').strip()
+            if not tenant_id:
+                return JsonResponse({
+                    'error': 'Superuser phải chỉ định tenant_id (Tổ chức mục tiêu).'
+                }, status=400)
+
+            # ✅ RULE 2: Validate tenant tồn tại
+            try:
+                tenant = Tenant.objects.get(id=tenant_id)
+            except Tenant.DoesNotExist:
+                logger.warning(
+                    f"Superuser {request.user.email} trying to create user "
+                    f"in non-existent tenant {tenant_id}"
+                )
+                return JsonResponse({
+                    'error': 'Tổ chức (Tenant) không tồn tại.'
+                }, status=404)
+
+            # ✅ RULE 3: Validate email chưa tồn tại
+            if TenantUser.objects.filter(email=email).exists():
+                return JsonResponse({
+                    'error': 'Email này đã được đăng ký trong hệ thống.'
+                }, status=400)
+
+            # ✅ RULE 4: Validate password strength
+            try:
+                django_validate_password(password)
+            except Exception as e:
+                return JsonResponse({
+                    'error': f'Mật khẩu không đủ mạnh: {str(e)}'
+                }, status=400)
+
+            # ✅ RULE 5: Tạo user trực tiếp (không dùng service vì service reject superuser)
+            user = TenantUser.objects.create_user(
+                email=email,
+                password=password,
+                full_name=full_name,
+                tenant=tenant,
+                role=TenantUser.ROLE_TENANT_USER  # Mặc định là staff
+            )
+
+            logger.info(
+                f"Superuser {request.user.email} created user {email} "
+                f"in tenant {tenant.name}"
+            )
+
+            return JsonResponse({
+                'message': f'✓ Tạo nhân viên {email} cho tổ chức {tenant.name} thành công',
+                'user_id': user.id,
+                'tenant_id': tenant.id
+            })
+
+        else:
+            # ===== TENANT ADMIN FLOW =====
+            logger.info(
+                f"Tenant Admin {request.user.email} creating staff user "
+                f"in tenant {request.user.tenant.name}"
+            )
+
+            # ✅ Validate Tenant Admin có tenant
+            if not request.user.tenant:
+                logger.error(f"Tenant Admin {request.user.email} has no tenant assigned!")
+                return JsonResponse({
+                    'error': 'Tài khoản của bạn chưa được gán vào tổ chức nào.'
+                }, status=403)
+
+            # ✅ Gọi service - sẽ tự validate tất cả permission + password strength
+            user = TenantUserService.create_staff(
+                creator=request.user,  # Pass current user (tenant admin)
+                email=email,
+                password_raw=password,
+                full_name=full_name
+            )
+
+            logger.info(
+                f"Tenant Admin {request.user.email} created staff {email} "
+                f"in tenant {request.user.tenant.name}"
+            )
+
+            return JsonResponse({
+                'message': f'✓ Tạo nhân viên {email} thành công',
+                'user_id': user.id,
+                'tenant_id': request.user.tenant.id
+            })
+
+    except ValidationError as e:
+        # Service layer validation error
+        logger.warning(f"Validation error when creating staff: {str(e.message)}")
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
+    except IntegrityError as e:
+        # Database constraint violation
+        logger.error(f"IntegrityError when creating staff: {str(e)}")
+        return JsonResponse({
+            'error': 'Dữ liệu bị trùng lặp hoặc vi phạm ràng buộc.'
+        }, status=400)
+    except Exception as e:
+        # Unexpected error
+        logger.error(f"Unexpected error creating staff: {str(e)}")
+        return JsonResponse({
+            'error': 'Lỗi hệ thống không xác định.'
+        }, status=500)
+
+
+# ============================================================================
+# API: CHANGE USER STATUS
+# ============================================================================
 
 @login_required(login_url='login')
 def api_change_user_status(request, user_id):
+    """
+    Thay đổi trạng thái hoạt động của user (active/inactive)
+
+    BẢO MẬT: IDOR check
+    - Tenant Admin: chỉ sửa được user trong tenant của họ
+    - Superuser: sửa được user của bất kỳ tenant nào
+
+    POST parameters:
+    - is_active: 'true' hoặc 'false'
+    """
+
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-    if not request.user.is_superuser and request.user.role != 'tenant_admin':
+    # ✅ FIX: Use constant thay vì string literal
+    if not (request.user.is_superuser or request.user.role == TenantUser.ROLE_TENANT_ADMIN):
         return JsonResponse({'error': 'Permission denied'}, status=403)
 
     is_active = request.POST.get('is_active') == 'true'
-    try:
-        TenantUserService.change_user_status(request.user.tenant, user_id, is_active)
-        return JsonResponse({'message': 'Cập nhật trạng thái thành công'})
-    except ValidationError as e:
-        return JsonResponse({'error': str(e.message)}, status=400)
 
+    try:
+        target_user = User.objects.get(id=user_id)
+
+        # ✅ IDOR Check: Tenant Admin chỉ sửa được user trong tenant của họ
+        if not request.user.is_superuser and target_user.tenant != request.user.tenant:
+            logger.warning(
+                f"IDOR attempt: {request.user.email} trying to change status "
+                f"of {target_user.email} in different tenant"
+            )
+            return JsonResponse({
+                'error': 'Bạn không có quyền chỉnh sửa thành viên của tổ chức khác.'
+            }, status=403)
+
+        # ✅ FIX: Gọi đúng tên hàm - change_status (không phải change_user_status)
+        TenantUserService.change_status(request.user, user_id, is_active)
+
+        return JsonResponse({'message': 'Cập nhật trạng thái thành công'})
+
+    except User.DoesNotExist:
+        return JsonResponse({
+            'error': 'Không tìm thấy tài khoản người dùng cần cập nhật.'
+        }, status=404)
+    except ValidationError as e:
+        logger.warning(f"Validation error changing status: {str(e.message)}")
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
+
+
+# ============================================================================
+# API: CHANGE USER ROLE
+# ============================================================================
 
 @login_required(login_url='login')
 def api_change_user_role(request, user_id):
     """
-    MỚI: Cho phép Tenant Admin (hoặc Superuser) đổi vai trò nhân viên ngay tại
-    user_list.html -- không cần qua thao tác "Gán Admin" ở tenant_list.html
-    (vốn chỉ dành cho Superuser và chỉ có chiều nâng quyền, không hạ được).
+    Thay đổi vai trò của user (tenant_admin hoặc tenant_user)
+
+    Chỉ Tenant Admin hoặc Superuser mới được thay đổi
+
+    POST parameters:
+    - role: 'tenant_admin' hoặc 'tenant_user'
     """
+
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-    new_role = request.POST.get('role')
+    new_role = request.POST.get('role', '').strip()
+
     try:
-        target_user = TenantUserService.change_user_role(request.user, user_id, new_role)
+        # ✅ Gọi service để validate tất cả permission + business logic
+        target_user = TenantUserService.change_role(request.user, user_id, new_role)
+
         return JsonResponse({
             'message': f'Đã cập nhật vai trò của {target_user.email} thành {target_user.get_role_display()}.',
             'role': target_user.role,
         })
     except ValidationError as e:
-        return JsonResponse({'error': str(e.message)}, status=400)
+        logger.warning(f"Validation error changing role: {str(e.message)}")
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
 
+
+# ============================================================================
+# TENANT MANAGEMENT (Superuser only)
+# ============================================================================
 
 @login_required(login_url='login')
 def tenant_list(request):
     """Hiển thị trang quản trị danh sách tổ chức (Chỉ dành cho Superadmin)"""
     if not request.user.is_superuser:
-        return render(request, 'errors/403.html', {'error': 'Chỉ có nhà phát triển hệ thống mới được vào phân hệ này.'})
+        return render(request, 'errors/403.html', {
+            'error': 'Chỉ có nhà phát triển hệ thống mới được vào phân hệ này.'
+        })
 
     tenants = Tenant.objects.all().order_by('-created_at')
     unassigned_users = User.objects.filter(is_superuser=False).select_related('tenant')
@@ -120,6 +356,7 @@ def tenant_list(request):
 
 @login_required(login_url='login')
 def api_add_tenant(request):
+    """Tạo tenant mới (Superuser only)"""
     if request.method != 'POST' or not request.user.is_superuser:
         return JsonResponse({'error': 'Từ chối truy cập'}, status=403)
 
@@ -127,17 +364,24 @@ def api_add_tenant(request):
     code = request.POST.get('code', '').strip().upper()
 
     if not name or not code:
-        return JsonResponse({'error': 'Tên và mã định danh tổ chức là bắt buộc.'}, status=400)
+        return JsonResponse({
+            'error': 'Tên và mã định danh tổ chức là bắt buộc.'
+        }, status=400)
 
-    if Tenant.objects.filter(code=code).exists():
-        return JsonResponse({'error': 'Mã định danh tổ chức này đã tồn tại.'}, status=400)
-
-    tenant = Tenant.objects.create(name=name, code=code)
-    return JsonResponse({'message': f"Đã khởi tạo thành công không gian làm việc cho {tenant.name}."})
+    try:
+        tenant = TenantService.create_tenant(name, code)
+        return JsonResponse({
+            'message': f"Đã khởi tạo thành công không gian làm việc cho {tenant.name}."
+        })
+    except ValidationError as e:
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
 
 
 @login_required(login_url='login')
 def api_edit_tenant(request, tenant_id):
+    """Sửa thông tin tenant (Superuser only)"""
     if request.method != 'POST' or not request.user.is_superuser:
         return JsonResponse({'error': 'Từ chối truy cập'}, status=403)
 
@@ -153,13 +397,16 @@ def api_edit_tenant(request, tenant_id):
 
 @login_required(login_url='login')
 def api_delete_tenant(request, tenant_id):
+    """Xóa tenant (Superuser only)"""
     if request.method != 'POST' or not request.user.is_superuser:
         return JsonResponse({'error': 'Từ chối truy cập'}, status=403)
 
     try:
         tenant = Tenant.objects.get(id=tenant_id)
-        if tenant.domains.exists():
-            return JsonResponse({'error': 'Không thể xóa! Tổ chức này đang ràng buộc với hạ tầng Domain.'}, status=400)
+        if tenant.users.exists():
+            return JsonResponse({
+                'error': 'Không thể xóa! Tổ chức này còn có nhân viên hoặc hạ tầng ràng buộc.'
+            }, status=400)
         tenant.delete()
         return JsonResponse({'message': 'Đã xóa dữ liệu Tenant khỏi hệ thống.'})
     except Tenant.DoesNotExist:
@@ -169,32 +416,35 @@ def api_delete_tenant(request, tenant_id):
 @login_required(login_url='login')
 def api_assign_tenant_admin(request):
     """
-    Đặc quyền điều phối: Đưa User vào Tenant và nâng cấp thành tenant_admin.
-    FIX: trước đây hàm này gán role='tenant_admin' một cách vô điều kiện, không
-    cảnh báo nếu user đã thuộc về một tenant khác (sẽ bị "rút" khỏi tổ chức cũ
-    một cách âm thầm, không có dấu hiệu gì trên UI). Giờ trả về cảnh báo rõ
-    trong message để Superuser biết chuyện gì đang xảy ra.
+    Đặc quyền: Gán user vào Tenant và nâng cấp thành tenant_admin
+    (Superuser only)
     """
     if request.method != 'POST' or not request.user.is_superuser:
         return JsonResponse({'error': 'Từ chối truy cập'}, status=403)
 
-    user_id = request.POST.get('user_id')
-    tenant_id = request.POST.get('tenant_id')
+    user_id = request.POST.get('user_id', '').strip()
+    tenant_id = request.POST.get('tenant_id', '').strip()
 
     try:
-        user = User.objects.get(id=user_id)
-        tenant = Tenant.objects.get(id=tenant_id)
-
-        warning = ""
-        if user.tenant_id and user.tenant_id != tenant.id:
-            warning = f" (Lưu ý: tài khoản này đã được rút khỏi tổ chức cũ '{user.tenant.name}'.)"
-
-        user.tenant = tenant
-        user.role = 'tenant_admin'
-        user.save(update_fields=['tenant', 'role'])
+        user, warning = TenantUserService.assign_tenant_admin(
+            superuser=request.user,
+            user_id=int(user_id),
+            tenant_id=int(tenant_id)
+        )
 
         return JsonResponse({
-            'message': f"Đã chỉ định quyền quản trị viên {user.email} cho tổ chức {tenant.name}.{warning}"
+            'message': f"Đã chỉ định quyền quản trị viên {user.email} "
+                       f"cho tổ chức {user.tenant.name}.{warning}"
         })
+    except ValueError:
+        return JsonResponse({
+            'error': 'ID không hợp lệ.'
+        }, status=400)
+    except ValidationError as e:
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
     except (User.DoesNotExist, Tenant.DoesNotExist):
-        return JsonResponse({'error': 'Thông tin cấu hình không hợp lệ.'}, status=404)
+        return JsonResponse({
+            'error': 'Thông tin cấu hình không hợp lệ.'
+        }, status=404)

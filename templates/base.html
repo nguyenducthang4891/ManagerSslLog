@@ -55,6 +55,8 @@
                     <ul class="dropdown-menu" aria-labelledby="navMonitoring">
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_metric' %}active{% endif %}" href="{% url 'monitor_metric' %}"><i class="bi bi-speedometer me-2"></i>Máy chủ</a></li>
                     <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_audit_list' %}active{% endif %}" href="{% url 'monitor_audit_list' %}"><i class="bi bi-journal-text me-2"></i>Nhật ký hành động</a></li>
+
+                    <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_mailbox_list' %}active{% endif %}" href="{% url 'monitor_mailbox_list' %}"><i class="bi bi-envelope me-2"></i>Thư gửi nhận</a></li>
                         {% if request.user.is_superuser or request.user.role == 'tenant_admin' %}
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_config_list' %}active{% endif %}" href="{% url 'monitor_config_list' %}"><i class="bi bi-gear me-2"></i>Cấu hình</a></li>
                         {% endif %}
@@ -83,8 +85,8 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navUser">
                         <li><span class="dropdown-item-text text-muted small">
-                            {% if request.user.is_superuser %}Superadmin hệ thống
-                            {% elif request.user.role == 'tenant_admin' %}Tenant Admin
+                            {% if request.user.is_superuser %}Admin hệ thống
+                            {% elif request.user.role == 'tenant_admin' %}Quản trị tổ chức
                             {% else %}Nhân viên{% endif %}
                         </span></li>
                         <li><hr class="dropdown-divider"></li>

@@ -38,16 +38,15 @@ class TenantUser(AbstractBaseUser, PermissionsMixin):
     ROLE_TENANT_ADMIN = "tenant_admin"
     ROLE_TENANT_USER = "tenant_user"
     ROLE_CHOICES = [
-        (ROLE_TENANT_ADMIN, "Tenant Administrator"),
-        (ROLE_TENANT_USER, "Tenant Staff"),
+        (ROLE_TENANT_ADMIN, "Quản trị tổ chức "),
+        (ROLE_TENANT_USER, "Nhân viên"),
     ]
 
     email = models.EmailField(unique=True, verbose_name="Địa chỉ Email")
     full_name = models.CharField(max_length=150, blank=True, verbose_name="Họ và tên")
 
-    # Một User phải thuộc về một Tenant (Ngoại trừ hệ thống Superadmin hệ thống có thể để null)
     tenant = models.ForeignKey(
-        Tenant, on_delete=models.CASCADE, null=True, blank=True,
+        Tenant, on_delete=models.CASCADE, null=True, blank=True,db_index=True,
         related_name="users", verbose_name="Thuộc Tenant"
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_TENANT_USER, verbose_name="Quyền hạn")
@@ -58,12 +57,12 @@ class TenantUser(AbstractBaseUser, PermissionsMixin):
 
     objects = CustomUserManager()
 
-    USERNAME_FIELD = 'email'  # Định nghĩa đăng nhập bằng Email
-    REQUIRED_FIELDS = []  # Không bắt buộc nhập username khi tạo bằng lệnh
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
 
     class Meta:
-        verbose_name = "Người dùng"
-        verbose_name_plural = "Người dùng"
+        verbose_name = "Thành viên tổ chức"
+        verbose_name_plural = "Thành viên tổ chức"
 
     def __str__(self):
-        return f"{self.email} ({self.tenant.name if self.tenant else 'System Admin'})"
+        return f"{self.email} ({self.get_role_display()})"

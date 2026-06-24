@@ -18,7 +18,7 @@
     <div class="card-body py-2">
         <div class="row g-2 align-items-center">
             <div class="col-md-4">
-                <select class="form-select form-select-sm" id="detailHours" onchange="loadHostDetailLogs()">
+                <select class="form-select form-select-sm" id="detailHours" onchange="resetAndLoadHostDetail()">
                     <option value="1">Lịch sử 1 giờ trước</option>
                     <option value="6">Lịch sử 6 giờ trước</option>
                     <option value="24" selected>Lịch sử 24 giờ trước</option>
@@ -26,7 +26,7 @@
                 </select>
             </div>
             <div class="col-md-4">
-                <select class="form-select form-select-sm" id="detailSeverity" onchange="loadHostDetailLogs()">
+                <select class="form-select form-select-sm" id="detailSeverity" onchange="resetAndLoadHostDetail()">
                     <option value="">-- Tất cả mức độ cảnh báo --</option>
                     <option value="ok">Bình thường (OK)</option>
                     <option value="warning">Cảnh báo (Warning)</option>
@@ -34,7 +34,7 @@
                 </select>
             </div>
             <div class="col-md-4 text-end">
-                <button class="btn btn-sm btn-dark w-100" onclick="loadHostDetailLogs()"><i class="bi bi-funnel"></i> Thực hiện lọc dữ liệu</button>
+                <button class="btn btn-sm btn-dark w-100" onclick="resetAndLoadHostDetail()"><i class="bi bi-funnel"></i> Thực hiện lọc dữ liệu</button>
             </div>
         </div>
     </div>
@@ -63,6 +63,7 @@
         </div>
     </div>
 </div>
+<div id="hostDetailLoadFooter" class="text-center text-muted small py-3"></div>
 
 <script>
     const HOSTNAME = "{{ hostname|escapejs }}";
@@ -70,9 +71,65 @@
     // -- bắt buộc phải có trong URL gọi API, KHÔNG còn dùng query string nữa.
     const TENANT_ID = {{ tenant_id }};
 
+    /**
+     * PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll), đồng bộ cơ
+     * chế IntersectionObserver với monitor_audit.js/monitor_mailbox.js --
+     * NHƯNG khác 1 điểm quan trọng: API api_host_logs trả về "items" là
+     * TOÀN BỘ danh sách tích lũy từ đầu tới trang hiện tại (không phải chỉ
+     * phần mới của trang đó -- xem giải thích trong views_metric.py:
+     * api_host_logs), vì MetricService.query() không hỗ trợ "from"/"size"
+     * thật. Vì vậy mỗi lần tải thêm, ta RENDER LẠI TOÀN BỘ bảng từ "items"
+     * mới nhận được, không "nối" (append) thêm dòng như 2 trang kia.
+     */
+    let hostDetailPage = 1;
+    let hostDetailHasMore = true;
+    let hostDetailIsLoading = false;
+    let hostDetailObserver = null;
+
     document.addEventListener("DOMContentLoaded", () => {
-        loadHostDetailLogs();
+        setupHostDetailScrollObserver();
+        resetAndLoadHostDetail();
     });
+
+    function setupHostDetailScrollObserver() {
+        const tbody = document.getElementById('hostDetailLogBody');
+        if (!tbody) return;
+
+        hostDetailObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) loadMoreHostDetail();
+            });
+        }, { root: null, rootMargin: '0px 0px 200px 0px', threshold: 0 });
+    }
+
+    function ensureHostDetailSentinel() {
+        const tbody = document.getElementById('hostDetailLogBody');
+        let sentinel = document.getElementById('hostDetailScrollSentinel');
+        if (sentinel) sentinel.remove();
+
+        sentinel = document.createElement('tr');
+        sentinel.id = 'hostDetailScrollSentinel';
+        sentinel.innerHTML = '<td colspan="9" style="height:1px;padding:0;border:0;"></td>';
+        tbody.appendChild(sentinel);
+
+        if (hostDetailObserver) hostDetailObserver.observe(sentinel);
+    }
+
+    /** Đổi filter (giờ/severity) -- quay về trang 1, xóa bảng, tải lại từ đầu. */
+    function resetAndLoadHostDetail() {
+        hostDetailPage = 1;
+        hostDetailHasMore = true;
+        const tbody = document.getElementById('hostDetailLogBody');
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
+        loadHostDetailLogs();
+    }
+
+    /** Observer gọi hàm này khi cuộn gần cuối bảng. */
+    function loadMoreHostDetail() {
+        if (hostDetailIsLoading || !hostDetailHasMore) return;
+        hostDetailPage += 1;
+        loadHostDetailLogs();
+    }
 
     /**
      * Định dạng tốc độ mạng tức thời (bits/giây) thành Mbps/Kbps -- giống
@@ -88,15 +145,56 @@
         return `${num} bps`;
     }
 
+    function hostDetailRowHtml(item) {
+        let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
+        let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
+            ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
+            : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
+
+        let rxRate = formatBitrate(item.net_rx_bps);
+        let txRate = formatBitrate(item.net_tx_bps);
+        let t = item.timestamp ? item.timestamp.replace('T', ' ').substring(0, 19) : '-';
+
+        return `
+            <tr>
+                <td class="ps-3 font-monospace fw-bold text-secondary">${t}</td>
+                <td class="fw-semibold">${item.cpu}%</td>
+                <td class="fw-semibold">${item.ram}%</td>
+                <td>${item.disk}%</td>
+                <td class="font-monospace text-muted">${rxRate}</td>
+                <td class="font-monospace text-muted">${txRate}</td>
+                <td><span class="badge bg-dark">${item.queue || 0}</span></td>
+                <td>${downList}</td>
+                <td class="pe-3"><span class="badge ${badge} text-uppercase font-monospace">${item.severity}</span></td>
+            </tr>
+        `;
+    }
+
+    function renderHostDetailFooter(state, total) {
+        const footer = document.getElementById('hostDetailLoadFooter');
+        if (!footer) return;
+
+        if (state === 'loading') {
+            footer.innerHTML = `<div class="spinner-border spinner-border-sm me-2"></div>Đang tải thêm...`;
+        } else if (state === 'error') {
+            footer.innerHTML = '';
+        } else if (!hostDetailHasMore) {
+            footer.innerHTML = total > 0 ? `Đã hiển thị tất cả ${total} bản ghi.` : '';
+        } else {
+            footer.innerHTML = `<small>Kéo xuống để tải thêm...</small>`;
+        }
+    }
+
     async function loadHostDetailLogs() {
         const hours = document.getElementById('detailHours').value;
         const severity = document.getElementById('detailSeverity').value;
         const tbody = document.getElementById('hostDetailLogBody');
 
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
+        hostDetailIsLoading = true;
+        renderHostDetailFooter('loading');
 
         // THAY ĐỔI: tenant_id giờ nằm trong PATH, không còn query string.
-        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}`;
+        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}&page=${hostDetailPage}`;
         if (severity) url += `&severity=${severity}`;
 
         try {
@@ -104,43 +202,32 @@
 
             if (res.error) {
                 tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
+                hostDetailHasMore = false;
+                renderHostDetailFooter('error');
                 return;
             }
+
+            hostDetailHasMore = !!res.has_more;
 
             if (!res.items || res.items.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
+                renderHostDetailFooter('idle', 0);
                 return;
             }
 
-            tbody.innerHTML = res.items.map(item => {
-                let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
-                let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
-                    ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
-                    : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
-
-                // THAY ĐỔI: dùng net_rx_bps/net_tx_bps (tốc độ tức thời, do
-                // agent tự tính -- xem agent_metrics.sh) thay vì net_rx/
-                // net_tx (counter lũy kế cũ, dễ hiểu lầm là tốc độ hiện tại).
-                let rxRate = formatBitrate(item.net_rx_bps);
-                let txRate = formatBitrate(item.net_tx_bps);
-                let t = item.timestamp ? item.timestamp.replace('T', ' ').substring(0,19) : '-';
-
-                return `
-                    <tr>
-                        <td class="ps-3 font-monospace fw-bold text-secondary">${t}</td>
-                        <td class="fw-semibold">${item.cpu}%</td>
-                        <td class="fw-semibold">${item.ram}%</td>
-                        <td>${item.disk}%</td>
-                        <td class="font-monospace text-muted">${rxRate}</td>
-                        <td class="font-monospace text-muted">${txRate}</td>
-                        <td><span class="badge bg-dark">${item.queue || 0}</span></td>
-                        <td>${downList}</td>
-                        <td class="pe-3"><span class="badge ${badge} text-uppercase font-monospace">${item.severity}</span></td>
-                    </tr>
-                `;
-            }).join('');
+            // "items" là TOÀN BỘ danh sách tích lũy (xem docstring đầu
+            // script) -- render lại từ đầu, không append.
+            tbody.innerHTML = res.items.map(hostDetailRowHtml).join('');
+            ensureHostDetailSentinel();
+            renderHostDetailFooter('idle', res.items.length);
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
+            if (hostDetailPage === 1) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
+            }
+            hostDetailHasMore = false;
+            renderHostDetailFooter('error');
+        } finally {
+            hostDetailIsLoading = false;
         }
     }
 </script>

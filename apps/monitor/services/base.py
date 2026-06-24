@@ -125,6 +125,11 @@ def run_search(client: Elasticsearch, index_pattern: str, query: dict,
     message tiếng Việt rõ ràng, thay vì mỗi service tự viết try/except riêng).
     Trả về danh sách hit thô (chưa xử lý _source) -- mỗi service tự quyết
     định cách xử lý field riêng của mình.
+
+    LƯU Ý: hàm này KHÔNG hỗ trợ phân trang thật (luôn lấy "size" bản ghi
+    đầu tiên từ đầu) -- giữ nguyên để không phá vỡ metric.py/audit.py đang
+    dùng. Cho nhu cầu phân trang (vd: mailbox.py), dùng run_search_paginated()
+    bên dưới.
     """
     try:
         result = client.search(
@@ -136,3 +141,43 @@ def run_search(client: Elasticsearch, index_pattern: str, query: dict,
     except Exception as e:
         raise ValidationError(f"Không thể truy vấn cụm ELK ({cluster_name}): {str(e)}")
     return result["hits"]["hits"]
+
+
+def run_search_paginated(client: Elasticsearch, index_pattern: str, query: dict,
+                          cluster_name: str, sort_field: str = TIMESTAMP_FIELD,
+                          page: int = 1, page_size: int = 50) -> tuple:
+    """
+    Giống run_search() nhưng hỗ trợ PHÂN TRANG THẬT qua "from"/"size" của
+    Elasticsearch, và trả về TỔNG SỐ BẢN GHI THỰC TẾ khớp điều kiện lọc
+    (không phải chỉ số lượng bản ghi trong trang hiện tại).
+
+    Dùng "track_total_hits=True" để buộc ES đếm CHÍNH XÁC tổng số hit, vì
+    mặc định ES chỉ đếm chính xác tới 10.000 rồi báo "gte" (giá trị gần
+    đúng, có thể đánh lừa UI hiển thị sai tổng số trang) -- với khối lượng
+    log mailbox tích lũy nhiều ngày, số bản ghi khớp điều kiện lọc rộng
+    (vd: không lọc gì, khoảng thời gian dài) có thể vượt 10.000 dễ dàng.
+
+    page: 1-indexed (trang 1 là trang đầu tiên, không phải trang 0).
+
+    Trả về: (hits, total) -- hits là danh sách hit thô của TRANG HIỆN TẠI,
+    total là tổng số bản ghi khớp điều kiện trên TOÀN BỘ index (không chỉ
+    trang hiện tại).
+    """
+    page = max(1, page)
+    page_size = max(1, min(page_size, 500))  # chặn page_size quá lớn gây nặng cụm ES
+    from_offset = (page - 1) * page_size
+
+    try:
+        result = client.search(
+            index=index_pattern,
+            query=query,
+            sort=[{sort_field: {"order": "desc"}}],
+            from_=from_offset,
+            size=page_size,
+            track_total_hits=True,
+        )
+    except Exception as e:
+        raise ValidationError(f"Không thể truy vấn cụm ELK ({cluster_name}): {str(e)}")
+
+    total = result["hits"]["total"]["value"]
+    return result["hits"]["hits"], total

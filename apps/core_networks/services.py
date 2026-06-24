@@ -5,6 +5,7 @@ from django.db import models
 from apps.core_networks.models import ZimbraServer, Domain
 from apps.core_networks.zimbra_soap import ZimbraAdminSoapClient
 from apps.tenants.models import Tenant
+from apps.utils.validate import DOMAIN_REGEX
 
 
 def _load_private_key(key_text: str):
@@ -153,13 +154,17 @@ class DomainService:
             raise ValidationError("Bạn không có quyền gán tên miền vào Server chuyên dụng của tổ chức khác.")
 
     @staticmethod
-    def add_domain(tenant: Tenant, domain_name: str, server_id: int, is_superuser: bool = False) -> Domain:
-        """
-        Đăng ký tên miền mới cho Tenant.
-        FIX: truyền is_superuser để superuser (tenant=None) vẫn add được domain vào
-        server dedicated của một tenant cụ thể khi cần (vd. khởi tạo hộ).
-        """
+    def add_domain(tenant: Tenant, domain_name: str, server_id: int, is_superuser: bool = False,
+                   create_on_zimbra: bool = True) -> Domain:
+        if not domain_name:
+            raise ValidationError("Tên miền không được để trống.")
+
         domain_name = domain_name.lower().strip()
+
+        # VALIDATE ĐỊNH DẠNG DOMAIN
+        if not DOMAIN_REGEX.match(domain_name):
+            raise ValidationError(
+                f"Định dạng tên miền '{domain_name}' không hợp lệ (Ví dụ đúng: company.com, mail.site.vn).")
 
         if Domain.objects.filter(name=domain_name).exists():
             raise ValidationError(f"Tên miền {domain_name} đã tồn tại trên hệ thống quản lý cục bộ.")
@@ -171,15 +176,20 @@ class DomainService:
 
         DomainService._check_tenant_can_use_server(tenant, server, is_superuser)
 
-        client = ZimbraAdminSoapClient(server)
+        # Thực tế tạo trên hạ tầng
+        if create_on_zimbra:
+            client = ZimbraAdminSoapClient(server)
+            if client.domain_exists(domain_name):
+                raise ValidationError(f"Tên miền '{domain_name}' đã cấu hình sẵn trên Mail Server vật lý.")
+            client.create_domain(domain_name)
 
-        if client.domain_exists(domain_name):
-            raise ValidationError(
-                f"Tên miền '{domain_name}' đã được cấu hình sẵn trên cụm Mail Server vật lý này từ trước.")
-
-        client.create_domain(domain_name)
-
-        return Domain.objects.create(tenant=tenant, name=domain_name, server=server)
+        # Lưu lại trạng thái đồng bộ vật lý vào DB thông qua thuộc tính is_created_on_zimbra
+        return Domain.objects.create(
+            tenant=tenant,
+            name=domain_name,
+            server=server,
+            is_created_on_zimbra=create_on_zimbra
+        )
 
     @staticmethod
     def change_domain_server(user, domain_id: int, new_server_id: int) -> Domain:

@@ -133,6 +133,28 @@ def api_host_logs(request, tenant_id):
     THAY ĐỔI: tenant_id giờ là path param bắt buộc (xem urls.py), validate
     quyền giống host_detail_view -- không còn dựa vào ?tenant_id= dễ quên
     hoặc bị sửa tùy ý qua query string.
+
+    PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll): CHỦ Ý KHÔNG sửa
+    MetricService.query() (giữ nguyên hành vi cho metric.html/api_query_metric)
+    vì query() áp severity_filter SAU KHI lấy hits từ ES (lọc bằng Python
+    trên severity tính lại theo threshold của tenant, ES không biết khái
+    niệm severity) -- nếu dùng phân trang ES thật ("from"/"size") kết hợp
+    severity_filter, tổng "total" sẽ không khớp số lượng thực tế sau lọc.
+
+    Giải pháp ĐƠN GIẢN, KHÔNG ĐỘNG vào service: mỗi lần "tải thêm" (page
+    tăng dần), TĂNG page_size truyền vào query() để lấy NHIỀU bản ghi hơn
+    từ đầu (page=1 -> lấy 1000 bản ghi đầu, page=2 -> lấy 2000 bản ghi đầu,
+    ...) rồi trả về cho client field "items" (đã chứa toàn bộ, không phải
+    chỉ phần mới) -- client tự cắt phần mới cần render thêm (xem
+    metric_detail.html: appendHostDetailRows() so sánh với số dòng đã có).
+    Đánh đổi: ES phải re-query lại từ đầu mỗi lần tải thêm (chấp nhận được
+    vì đây là trang chi tiết 1 host, dữ liệu không quá lớn so với toàn hệ
+    thống).
+
+    "has_more": true nếu số lượng items trả về CHẠM ĐÚNG page_size đã yêu
+    cầu -- gợi ý khả năng còn dữ liệu chưa lấy hết (không chính xác 100%
+    vì severity_filter có thể làm items ít hơn page_size dù ES còn dữ
+    liệu, nhưng đây là cách suy luận tốt nhất không cần đổi service).
     """
     hostname = request.GET.get('hostname')
     if not hostname:
@@ -147,6 +169,14 @@ def api_host_logs(request, tenant_id):
 
     hours = _parse_int(request.GET.get('hours'), default=24)
     severity = request.GET.get('severity') or None
+    page = _parse_int(request.GET.get('page'), default=1)
+    if page < 1:
+        page = 1
+
+    # Mỗi trang tải thêm 1000 bản ghi -- "lấy dồn" từ đầu, không phải
+    # "lấy riêng từng trang" (xem giải thích trong docstring phía trên).
+    DETAIL_PAGE_STEP = 1000
+    effective_page_size = page * DETAIL_PAGE_STEP
 
     try:
         data = MetricService.query(
@@ -155,8 +185,10 @@ def api_host_logs(request, tenant_id):
             hours=hours,
             hostname=hostname.strip().lower(),  # chuẩn hoá lowercase, khớp .keyword exact-match trên ES
             severity_filter=severity,
-            page_size=1000,  # lịch sử 1 host cần nhiều record hơn trang tổng quan
+            page_size=effective_page_size,
         )
+        data["page"] = page
+        data["has_more"] = len(data.get("items", [])) >= effective_page_size
         return JsonResponse(data)
     except ValidationError as e:
         return JsonResponse({"error": str(e)}, status=400)

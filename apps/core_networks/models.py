@@ -37,16 +37,20 @@ class Domain(models.Model):
     # Domain "tự do" (chưa gán tổ chức) được biểu diễn bằng tenant = None, không cần default.
     tenant = models.ForeignKey(
         Tenant, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="domains", verbose_name="Tenant"
+        related_name="domains", verbose_name="Tổ chức "
     )
     name = models.CharField(max_length=255, unique=True, verbose_name="Tên Miền (ví dụ: domain.com)")
     server = models.ForeignKey(
         ZimbraServer, on_delete=models.PROTECT, related_name="domains",
-        verbose_name="Zimbra Server phụ trách"
+        verbose_name="Máy chủ Email"
     )
     is_active = models.BooleanField(default=True, verbose_name="Kích hoạt")
     created_at = models.DateTimeField(auto_now_add=True)
-
+    is_created_on_zimbra = models.BooleanField(
+        default=True,
+        verbose_name="Khởi tạo trên máy chủ Email",
+        help_text="Nếu không chọn, Tên miền sẽ ko tạo trên máy chủ Email"
+    )
     class Meta:
         verbose_name = "Domain"
         verbose_name_plural = "Domains"

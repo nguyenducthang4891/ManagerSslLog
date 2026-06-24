@@ -1,8 +1,9 @@
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.contrib.auth import authenticate, login, logout
 from apps.tenants.models import Tenant, TenantUser
-
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 class AuthService:
     @staticmethod
@@ -34,171 +35,151 @@ class AuthService:
         return user
 
 
+
 class TenantService:
     @staticmethod
-    def create_tenant_with_admin(name: str, code: str, admin_email: str, admin_password: str) -> Tenant:
-        """Tạo mới Tenant và tài khoản Admin đi kèm trong một Transaction"""
-        code = code.lower().strip()
-        if Tenant.objects.filter(code=code).exists():
-            raise ValidationError("Mã định danh (Subdomain) này đã được sử dụng.")
-        if TenantUser.objects.filter(email=admin_email).exists():
-            raise ValidationError("Email này đã được đăng ký trên hệ thống.")
-
-        with transaction.atomic():
-            tenant = Tenant.objects.create(name=name, code=code)
-            TenantUser.objects.create_user(
-                email=admin_email,
-                password=admin_password,
-                tenant=tenant,
-                role=TenantUser.ROLE_TENANT_ADMIN,
-                is_staff=False
-            )
-            return tenant
+    def get_list(user):
+        """Chỉ Superuser mới xem được danh sách các Tenant"""
+        if user.is_superuser:
+            return Tenant.objects.all().order_by('-created_at')
+        return Tenant.objects.none()
 
     @staticmethod
-    def update_tenant(tenant_id: int, name: str = None, is_active: bool = None) -> Tenant:
-        """Cập nhật thông tin cấu hình Tenant"""
+    @transaction.atomic  # ✅ Đã có nhưng cần database-level fix
+    def create_tenant(name: str, code: str) -> Tenant:
         try:
-            tenant = Tenant.objects.get(id=tenant_id)
-        except Tenant.DoesNotExist:
-            raise ValidationError("Không tìm thấy Tenant cần cập nhật.")
-
-        update_fields = []
-        if name is not None:
-            tenant.name = name
-            update_fields.append('name')
-        if is_active is not None:
-            tenant.is_active = is_active
-            update_fields.append('is_active')
-
-        if update_fields:
-            tenant.save(update_fields=update_fields)
-        return tenant
+            return Tenant.objects.create(name=name, code=code)
+        except IntegrityError:
+            raise ValidationError("Mã định danh (Slug) đã tồn tại trong hệ thống.")
 
     @staticmethod
-    def delete_tenant(tenant_id: int):
-        """
-        Xóa tổ chức (Cascade xóa sạch user liên quan vì TenantUser.tenant dùng on_delete=CASCADE).
-        Domain dùng on_delete=SET_NULL với Tenant, nên domain KHÔNG bị xóa cascade --
-        chúng chỉ mất liên kết tenant (trở thành "tự do"). Việc chặn xóa khi còn domain
-        được thực hiện ở views.py (api_delete_tenant).
-        """
-        try:
-            tenant = Tenant.objects.get(id=tenant_id)
-        except Tenant.DoesNotExist:
-            raise ValidationError("Không tìm thấy Tenant cần xóa.")
-        tenant.delete()
-
-    @staticmethod
-    def get_list(user) -> list[Tenant]:
-        """Lấy danh sách các Tenant (Chỉ Superadmin hệ thống mới có quyền)"""
+    def edit_tenant(user, tenant_id: int, name: str, is_active: bool) -> Tenant:
         if not user.is_superuser:
-            raise ValidationError("Bạn không có quyền truy cập danh sách tổ chức hệ thống.")
-        return Tenant.objects.all().order_by('-created_at')
-
-    @staticmethod
-    def get_detail(user, tenant_id: int) -> Tenant:
-        """Xem chi tiết thông tin một Tenant"""
-        if not user.is_superuser and (not user.tenant or user.tenant.id != tenant_id):
-            raise ValidationError("Bạn không có quyền truy cập thông tin tổ chức này.")
+            raise ValidationError("Bạn không có đặc quyền sửa đổi cấu trúc tổ chức hạ tầng.")
         try:
-            return Tenant.objects.get(id=tenant_id)
+            tenant = Tenant.objects.get(id=tenant_id)
+            tenant.name = name
+            tenant.is_active = is_active
+            tenant.save(update_fields=['name', 'is_active', 'updated_at'])
+            return tenant
         except Tenant.DoesNotExist:
             raise ValidationError("Không tìm thấy tổ chức chỉ định.")
 
 
 class TenantUserService:
     @staticmethod
-    def create_staff(tenant: Tenant, email: str, password: str, full_name: str = "") -> TenantUser:
-        """Admin tạo thêm nhân viên (Staff) cấp dưới thuộc cùng Tenant"""
-        if TenantUser.objects.filter(email=email).exists():
-            raise ValidationError("Email nhân viên đã tồn tại trên hệ thống.")
+    def get_list(user) -> list[TenantUser]:
+        queryset = TenantUser.objects.select_related('tenant')
 
-        return TenantUser.objects.create_user(
-            email=email,
-            password=password,
-            tenant=tenant,
-            full_name=full_name,
-            role=TenantUser.ROLE_TENANT_USER
-        )
+        if user.is_superuser:
+            return queryset.all().order_by('-date_joined')
+        if not user.tenant:
+            return TenantUser.objects.none()
+        return queryset.filter(tenant=user.tenant).order_by('-date_joined')
 
     @staticmethod
-    def change_user_status(tenant: Tenant, user_id: int, is_active: bool):
-        """Bật/Tắt trạng thái hoạt động của nhân viên nội bộ"""
+    def create_staff(creator, email: str, password_raw: str, full_name: str) -> TenantUser:
+        """Khai báo nhân viên mới gán chặt chẽ vào Tenant của Admin tạo nó"""
+        if creator.is_superuser:
+            raise ValidationError(
+                "Hệ thống Superadmin vui lòng khởi tạo tài khoản qua Django Admin hoặc gán Tenant cụ thể trước.")
+        if not creator.tenant:
+            raise ValidationError("Tài khoản của bạn chưa được gán vào tổ chức nào để có thể tạo nhân viên con.")
+        if creator.role != TenantUser.ROLE_TENANT_ADMIN:
+            raise ValidationError(
+                "Chỉ quản trị viên cấp cao của tổ chức (Tenant Admin) mới có quyền tạo thêm nhân viên.")
+
+        if TenantUser.objects.filter(email=email).exists():
+            raise ValidationError("Địa chỉ email này đã được đăng ký trong hệ thống.")
         try:
-            user = TenantUser.objects.get(id=user_id, tenant=tenant)
-        except TenantUser.DoesNotExist:
-            raise ValidationError("Không tìm thấy người dùng thuộc tổ chức của bạn.")
+            validate_password(password_raw)
+        except DjangoValidationError as e:
+            raise ValidationError(f"Mật khẩu không đủ mạnh: {str(e)}")
 
-        if user.role == TenantUser.ROLE_TENANT_ADMIN:
-            raise ValidationError("Không thể vô hiệu hóa tài khoản Admin chính.")
-
-        user.is_active = is_active
-        user.save(update_fields=['is_active'])
+        user = TenantUser.objects.create_user(
+            email=email,
+            password=password_raw,
+            full_name=full_name,
+            tenant=creator.tenant,
+            role=TenantUser.ROLE_TENANT_USER
+        )
         return user
 
     @staticmethod
-    def change_user_role(acting_user: TenantUser, target_user_id: int, new_role: str) -> TenantUser:
-        """
-        MỚI: Cho phép Tenant Admin tự nâng/hạ quyền (tenant_admin <-> tenant_user)
-        cho nhân viên TRONG CHÍNH tổ chức của mình, không cần Superuser duyệt.
+    def change_status(user, target_user_id: int, is_active: bool) -> TenantUser:
+        """Bảo mật: Kiểm tra IDOR - không cho sửa user của tenant khác"""
+        try:
+            if user.is_superuser:
+                target_user = TenantUser.objects.get(id=target_user_id)
+            else:
+                target_user = TenantUser.objects.get(id=target_user_id, tenant=user.tenant)
+                if user.role != TenantUser.ROLE_TENANT_ADMIN:
+                    raise ValidationError("Bạn không có quyền thay đổi trạng thái thành viên.")
+        except TenantUser.DoesNotExist:
+            raise ValidationError("Không tìm thấy tài khoản người dùng hoặc bạn không có quyền quản lý tài khoản này.")
 
-        Ràng buộc an toàn:
-        - acting_user phải là superuser HOẶC tenant_admin của CHÍNH tenant chứa target_user.
-        - Không tự hạ quyền chính bản thân mình (tránh tự khóa quyền truy cập,
-          vd. admin duy nhất tự hạ quyền xuống staff sẽ không ai quản lý tổ chức nữa).
-        - Nếu hạ quyền tenant_admin -> tenant_user, tổ chức phải còn LẠI ÍT NHẤT
-          1 tenant_admin khác đang hoạt động sau khi hạ quyền (không để tổ chức
-          rơi vào trạng thái không có ai quản lý).
-        - new_role phải là 1 trong các giá trị hợp lệ của TenantUser.ROLE_CHOICES.
-        """
-        valid_roles = dict(TenantUser.ROLE_CHOICES)
-        if new_role not in valid_roles:
-            raise ValidationError("Vai trò chỉ định không hợp lệ.")
+        # Ngăn chặn vô hiệu hóa Tenant Admin hoạt động cuối cùng của Tenant đó
+        if not is_active and target_user.role == TenantUser.ROLE_TENANT_ADMIN:
+            active_admins = TenantUser.objects.filter(
+                tenant=target_user.tenant, role=TenantUser.ROLE_TENANT_ADMIN, is_active=True
+            ).exclude(id=target_user.id).count()
+            if active_admins == 0:
+                raise ValidationError("Không thể vô hiệu hóa: Tổ chức yêu cầu có ít nhất 1 Quản trị viên hoạt động.")
+
+        target_user.is_active = is_active
+        target_user.save(update_fields=['is_active'])
+        return target_user
+
+    @staticmethod
+    def change_role(user, target_user_id: int, new_role: str) -> TenantUser:
+        """Bảo mật: Thay đổi chức vụ nhân viên nội bộ"""
+        if new_role not in [TenantUser.ROLE_TENANT_ADMIN, TenantUser.ROLE_TENANT_USER]:
+            raise ValidationError("Vai trò chuyển đổi không hợp lệ.")
 
         try:
-            target_user = TenantUser.objects.get(id=target_user_id)
+            if user.is_superuser:
+                target_user = TenantUser.objects.get(id=target_user_id)
+            else:
+                target_user = TenantUser.objects.get(id=target_user_id, tenant=user.tenant)
+                if user.role != TenantUser.ROLE_TENANT_ADMIN:
+                    raise ValidationError("Chỉ Tenant Admin mới có quyền điều phối cấp bậc nhân viên.")
         except TenantUser.DoesNotExist:
-            raise ValidationError("Không tìm thấy người dùng cần đổi quyền.")
+            raise ValidationError("Không tìm thấy thành viên hợp lệ trong cấu trúc tổ chức của bạn.")
 
-        # Quyền hạn: Superuser thao tác tự do; Tenant Admin chỉ thao tác trong tenant của mình.
-        if not acting_user.is_superuser:
-            if acting_user.role != TenantUser.ROLE_TENANT_ADMIN:
-                raise ValidationError("Chỉ Tenant Admin hoặc Superuser mới có quyền thay đổi vai trò nhân viên.")
-            if not acting_user.tenant or target_user.tenant_id != acting_user.tenant_id:
-                raise ValidationError("Bạn chỉ có thể thay đổi vai trò nhân viên thuộc tổ chức của mình.")
-
-        if target_user.id == acting_user.id and new_role != acting_user.role:
-            raise ValidationError("Bạn không thể tự thay đổi vai trò của chính tài khoản mình.")
-
-        if target_user.role == new_role:
-            return target_user  # không có gì để đổi
-
-        # Nếu đang hạ quyền một Tenant Admin xuống Staff, đảm bảo tổ chức còn admin khác.
+        # Ngăn chặn hạ cấp Admin duy nhất
         if target_user.role == TenantUser.ROLE_TENANT_ADMIN and new_role == TenantUser.ROLE_TENANT_USER:
             remaining_admins = TenantUser.objects.filter(
-                tenant=target_user.tenant,
-                role=TenantUser.ROLE_TENANT_ADMIN,
-                is_active=True,
+                tenant=target_user.tenant, role=TenantUser.ROLE_TENANT_ADMIN, is_active=True
             ).exclude(id=target_user.id).count()
-
             if remaining_admins == 0:
-                raise ValidationError(
-                    "Không thể hạ quyền: tổ chức cần có ít nhất một Tenant Admin đang hoạt động."
-                )
+                raise ValidationError("Không thể hạ quyền: Tổ chức bắt buộc cần tối thiểu một Tenant Admin.")
 
         target_user.role = new_role
         target_user.save(update_fields=['role'])
         return target_user
 
     @staticmethod
-    def get_list(user) -> list[TenantUser]:
-        """Lấy danh sách nhân viên thuộc tổ chức của User đang đăng nhập"""
-        if user.is_superuser:
-            return TenantUser.objects.all().order_by('-date_joined')
-        if not user.tenant:
-            return TenantUser.objects.none()
-        return TenantUser.objects.filter(tenant=user.tenant).order_by('-date_joined')
+    @transaction.atomic
+    def assign_tenant_admin(superuser, user_id: int, tenant_id: int) -> tuple[TenantUser, str]:
+        """Superadmin điều phối người dùng tự do hoặc từ tổ chức khác vào làm admin của Tenant mới"""
+        if not superuser.is_superuser:
+            raise ValidationError("Hành động này bị từ chối truy cập nghiêm ngặt.")
+
+        try:
+            user = TenantUser.objects.get(id=user_id)
+            tenant = Tenant.objects.get(id=tenant_id)
+        except (TenantUser.DoesNotExist, Tenant.DoesNotExist):
+            raise ValidationError("Thông tin cấu hình tài khoản hoặc tổ chức không tồn tại.")
+
+        warning_msg = ""
+        if user.tenant and user.tenant.id != tenant.id:
+            warning_msg = f" (Lưu ý hệ thống: Đã bóc tách tài khoản này ra khỏi tổ chức cũ '{user.tenant.name}'.)"
+
+        user.tenant = tenant
+        user.role = TenantUser.ROLE_TENANT_ADMIN
+        user.is_active = True
+        user.save(update_fields=['tenant', 'role', 'is_active'])
+        return user, warning_msg
 
     @staticmethod
     def get_detail(user, user_id: int) -> TenantUser:
