@@ -41,7 +41,7 @@
 
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'cert_list' %}active fw-bold{% endif %}" href="#" id="navSsl" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-patch-check me-1"></i>Bảo mật SSL
+                        <i class="bi bi-patch-check me-1"></i>Quản lý SSL
                     </a>
                     <ul class="dropdown-menu" aria-labelledby="navSsl">
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'cert_list' %}active{% endif %}" href="{% url 'cert_list' %}"><i class="bi bi-file-earmark-lock2 me-2"></i>Kho chứng chỉ</a></li>
@@ -69,7 +69,7 @@
                         <i class="bi bi-people me-1"></i>Quản trị
                     </a>
                     <ul class="dropdown-menu" aria-labelledby="navAdmin">
-                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'user_list' %}active{% endif %}" href="{% url 'user_list' %}"><i class="bi bi-person-badge me-2"></i>Nhân viên</a></li>
+                        <li><a class="dropdown-item {% if request.resolver_match.url_name == 'user_list' %}active{% endif %}" href="{% url 'user_list' %}"><i class="bi bi-person-badge me-2"></i> Người dùng </a></li>
                         {% if request.user.is_superuser %}
                         <li><a class="dropdown-item {% if request.resolver_match.url_name == 'tenant_list' %}active{% endif %}" href="{% url 'tenant_list' %}"><i class="bi bi-building me-2"></i>Tổ chức </a></li>
                         {% endif %}

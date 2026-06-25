@@ -88,9 +88,9 @@ class ZimbraDeployService:
         #     virtual_hostname = "mailpoc.cpt.gov.vn"
 
         try:
-            self._log(f"Bắt đầu kết nối tới Zimbra: {self.server.hostname} làm user root")
+            self._log(f"Bắt đầu kết nối tới Zimbra: {self.server.hostname}")
             self._connect()
-            self._log("Kết nối SSH thành công. Đang kiểm tra trạng thái Zimbra...")
+            self._log("Kết nối thành công. Đang kiểm tra trạng thái Zimbra...")
 
             # ===== BƯỚC 1: Kiểm tra Zimbra installation =====
             check_zimbra = self._exec_as_zimbra(f"{self.server.zimbra_home}/bin/zmcontrol status")
@@ -169,7 +169,7 @@ class ZimbraDeployService:
             self._exec_as_zimbra(md_cmd)
 
             # ===== BƯỚC 6: VERIFY Chứng chỉ qua zmcertmgr =====
-            self._log("Tiến hành kiểm tra (Verify) chứng chỉ bằng zmcertmgr...")
+            self._log("Tiến hành kiểm tra (Verify) chứng chỉ ...")
             verify_cmd = f"cd {cert_dir} && {self.server.zimbra_home}/bin/zmcertmgr verifycrt comm"
             # Lưu ý: zmcertmgr verifycrt comm trong thư mục domain yêu cầu file phải đặt tên đúng cấu trúc mặc định hoặc truyền tham số.
             # Dựa theo ssl.py, lệnh chạy trực tiếp là:
@@ -198,7 +198,7 @@ class ZimbraDeployService:
 
 
             # ===== BƯỚC 8: Lưu chứng chỉ (savecrt) bằng zmdomaincertmgr =====
-            self._log("Đang lưu chứng chỉ vào cấu hình Domain bằng zmdomaincertmgr...")
+            self._log("Đang lưu chứng chỉ vào cấu hình Domain ")
             savecrt_cmd = f"cd {cert_dir} && {self.server.zimbra_home}/libexec/zmdomaincertmgr savecrt {domain_name} {bundle_file} {key_file}"
             save_res = self._exec_as_zimbra(savecrt_cmd, timeout=120)
             self._log(f"[Zimbra Savecrt Output]: {save_res['output']}")
@@ -206,7 +206,7 @@ class ZimbraDeployService:
                 raise Exception(f"Lưu chứng chỉ (savecrt) thất bại: {save_res['output']}")
 
             # ===== BƯỚC 9: Triển khai (deploycrts) bằng zmdomaincertmgr =====
-            self._log("Đang tiến hành deploy chứng chỉ đa tên miền (deploycrts)...")
+            self._log("Đang tiến hành deploy chứng chỉ đa tên miền ")
             deploy_res = self._exec_as_zimbra(f"{self.server.zimbra_home}/libexec/zmdomaincertmgr deploycrts",
                                               timeout=180)
             self._log(f"[Zimbra Deploycrts Output]: {deploy_res['output']}")
