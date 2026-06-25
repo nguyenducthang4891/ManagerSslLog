@@ -9,6 +9,7 @@ urlpatterns = [
     path('networks/', include('apps.core_networks.urls')),
     path('ssl/', include('apps.ssl_manager.urls')),
     path('monitor/', include('apps.monitor.urls')),
+    path('soap/', include('apps.mailboxsoap.urls')),
 
 ]
 

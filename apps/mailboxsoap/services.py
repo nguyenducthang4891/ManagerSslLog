@@ -1,0 +1,223 @@
+"""
+apps/mailbox/services.py
+
+Service layer cho chức năng "Tìm kiếm & Quản lý Email" (Mailbox).
+Toàn bộ thao tác đọc/sửa account đều gọi trực tiếp lên Zimbra qua SOAP Admin
+API (ZimbraAdminSoapClient), KHÔNG lưu thông tin mailbox vào DB cục bộ --
+DB cục bộ chỉ giữ Domain/Server/Tenant để biết phải gọi server nào.
+
+Quy tắc phân quyền dữ liệu (áp dụng tại đây, không chỉ ở view, để mọi nơi gọi
+service đều được bảo vệ -- tránh IDOR nếu sau này có thêm view/API khác gọi
+vào service này):
+    - Superuser: được search/sửa account trên MỌI domain.
+    - Tenant Admin / Nhân viên: chỉ được search/sửa account thuộc domain nằm
+      trong tenant của họ. Domain "tự do" (tenant=None) KHÔNG hiển thị cho
+      non-superuser để tránh user thường "mò" được account domain chưa gán ai.
+"""
+from django.core.exceptions import ValidationError
+
+from apps.core_networks.models import Domain
+from apps.core_networks.zimbra_soap import ZimbraAdminSoapClient
+
+
+# Các field hồ sơ cho phép xem/sửa qua màn hình tìm kiếm email.
+# Key = tên attribute thật trên Zimbra, dùng làm chuẩn duy nhất khi gọi SOAP.
+PROFILE_ATTRS = ["givenName", "sn", "displayName", "title", "mobile"]
+
+
+class MailboxPermissionService:
+    """Tách riêng phần kiểm tra quyền để tái dùng ở mọi action (search/edit/...)."""
+
+    @staticmethod
+    def get_allowed_domains(user):
+        """Danh sách Domain mà user hiện tại được phép tìm kiếm/quản lý email."""
+        if user.is_superuser:
+            return Domain.objects.select_related('server', 'tenant').filter(is_active=True).order_by('name')
+        if not user.tenant:
+            return Domain.objects.none()
+        return Domain.objects.select_related('server', 'tenant').filter(
+            tenant=user.tenant, is_active=True
+        ).order_by('name')
+
+    @staticmethod
+    def get_domain_or_403(user, domain_id: int) -> Domain:
+        """Lấy 1 Domain cụ thể, raise nếu user không có quyền truy cập domain đó."""
+        try:
+            domain = Domain.objects.select_related('server', 'tenant').get(id=domain_id)
+        except Domain.DoesNotExist:
+            raise ValidationError("Không tìm thấy tên miền chỉ định.")
+
+        if user.is_superuser:
+            return domain
+        if not user.tenant or domain.tenant_id != user.tenant_id:
+            raise ValidationError("Bạn không có quyền truy cập tên miền này.")
+        return domain
+
+    @staticmethod
+    def can_manage_account(user) -> bool:
+        """
+        Superuser và Tenant Admin được sửa/xóa/khóa/đổi tên/backup.
+        Nhân viên (tenant_user) chỉ được Reset Password (kiểm tra riêng ở action đó).
+        """
+        from apps.tenants.models import TenantUser
+        return user.is_superuser or user.role == TenantUser.ROLE_TENANT_ADMIN
+
+
+class MailboxService:
+
+    @staticmethod
+    def _get_client_for_domain(domain: Domain) -> ZimbraAdminSoapClient:
+        if not domain.server:
+            raise ValidationError("Tên miền này chưa được gán Máy chủ Zimbra để thao tác.")
+        return ZimbraAdminSoapClient(domain.server)
+
+    @staticmethod
+    def _ensure_email_in_domain(email: str, domain: Domain):
+        """Chặn truy cập account thuộc domain khác qua việc giả mạo email -- IDOR."""
+        suffix = f"@{domain.name}".lower()
+        if not email.lower().strip().endswith(suffix):
+            raise ValidationError("Địa chỉ email không thuộc tên miền đã chọn.")
+
+    # Số lượng record trả về cho mỗi lần load (infinite scroll phía client).
+    SEARCH_PAGE_SIZE = 25
+
+    @staticmethod
+    def search(user, domain_id: int, query: str, offset: int = 0) -> dict:
+        """
+        Tìm kiếm account theo email (chứa chuỗi `query`) trong 1 domain được phép.
+        Trả về dict {results, has_more} để client biết còn dữ liệu để tải tiếp
+        (infinite scroll) hay không.
+
+        Kỹ thuật "fetch limit+1": gọi Zimbra với limit = PAGE_SIZE + 1, nếu nhận
+        về nhiều hơn PAGE_SIZE bản ghi thì biết chắc còn trang sau, mà không cần
+        Zimbra trả tổng số kết quả (SearchDirectoryRequest không có total count).
+        """
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        if not query or not query.strip():
+            raise ValidationError("Vui lòng nhập từ khóa email cần tìm kiếm.")
+
+        if offset < 0:
+            offset = 0
+
+        page_size = MailboxService.SEARCH_PAGE_SIZE
+        client = MailboxService._get_client_for_domain(domain)
+        raw_results = client.search_account(
+            query.strip(), domain.name, limit=page_size + 1, offset=offset
+        )
+
+        has_more = len(raw_results) > page_size
+        raw_results = raw_results[:page_size]
+
+        results = []
+        for attrs in raw_results:
+            results.append({
+                "email": attrs.get("name") or attrs.get("mail", ""),
+                "givenName": attrs.get("givenName", ""),
+                "sn": attrs.get("sn", ""),
+                "displayName": attrs.get("displayName", ""),
+                "title": attrs.get("title", ""),
+                "mobile": attrs.get("mobile", ""),
+                "status": attrs.get("zimbraAccountStatus", "active"),
+            })
+        return {"results": results, "has_more": has_more}
+
+    @staticmethod
+    def get_detail(user, domain_id: int, email: str) -> dict:
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        client = MailboxService._get_client_for_domain(domain)
+        attrs = client.get_account(email)
+        return {
+            "email": attrs.get("name", email),
+            "givenName": attrs.get("givenName", ""),
+            "sn": attrs.get("sn", ""),
+            "displayName": attrs.get("displayName", ""),
+            "title": attrs.get("title", ""),
+            "mobile": attrs.get("mobile", ""),
+            "status": attrs.get("zimbraAccountStatus", "active"),
+        }
+
+    @staticmethod
+    def update_profile(user, domain_id: int, email: str, profile: dict) -> None:
+        """Sửa thông tin givenName/sn/displayName/title/mobile. Superuser & Tenant Admin."""
+        if not MailboxPermissionService.can_manage_account(user):
+            raise ValidationError("Bạn không có quyền chỉnh sửa thông tin tài khoản email.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        # Chỉ truyền các field hợp lệ trong PROFILE_ATTRS, tránh client-side
+        # nhồi attribute khác (privilege/role attrs) qua request.
+        safe_profile = {k: v for k, v in profile.items() if k in PROFILE_ATTRS}
+
+        client = MailboxService._get_client_for_domain(domain)
+        client.modify_account(email, safe_profile)
+
+    @staticmethod
+    def reset_password(user, domain_id: int, email: str, new_password: str) -> None:
+        """
+        Reset password -- DUY NHẤT hành động mà Nhân viên (tenant_user) cũng được
+        phép thực hiện, miễn là email thuộc domain trong tenant của họ.
+        """
+        if not new_password or len(new_password) < 8:
+            raise ValidationError("Mật khẩu mới phải có ít nhất 8 ký tự.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        client = MailboxService._get_client_for_domain(domain)
+        client.set_password(email, new_password)
+
+    @staticmethod
+    def rename(user, domain_id: int, email: str, new_email: str) -> None:
+        if not MailboxPermissionService.can_manage_account(user):
+            raise ValidationError("Bạn không có quyền đổi tên địa chỉ email.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+        MailboxService._ensure_email_in_domain(new_email, domain)
+
+        client = MailboxService._get_client_for_domain(domain)
+        client.rename_account(email, new_email)
+
+    @staticmethod
+    def set_status(user, domain_id: int, email: str, status: str) -> None:
+        """status: active | locked | closed"""
+        if not MailboxPermissionService.can_manage_account(user):
+            raise ValidationError("Bạn không có quyền thay đổi trạng thái tài khoản email.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        client = MailboxService._get_client_for_domain(domain)
+        client.set_account_status(email, status)
+
+    @staticmethod
+    def delete(user, domain_id: int, email: str) -> None:
+        """Xóa vĩnh viễn account -- chỉ Superuser/Tenant Admin, KHÔNG thể hoàn tác."""
+        if not MailboxPermissionService.can_manage_account(user):
+            raise ValidationError("Bạn không có quyền xóa tài khoản email.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        client = MailboxService._get_client_for_domain(domain)
+        client.delete_account(email)
+
+    @staticmethod
+    def get_backup_target(user, domain_id: int, email: str):
+        """
+        Trả về (server, email) để view thực hiện stream file backup .tgz về client
+        qua HTTP Basic Auth (admin email/password của ZimbraServer), theo định dạng:
+        https://<host>:7071/home/<email>/?fmt=tgz
+        """
+        if not MailboxPermissionService.can_manage_account(user):
+            raise ValidationError("Bạn không có quyền tải dữ liệu sao lưu hộp thư.")
+
+        domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
+        MailboxService._ensure_email_in_domain(email, domain)
+
+        if not domain.server:
+            raise ValidationError("Tên miền này chưa được gán Máy chủ Zimbra để sao lưu.")
+        return domain.server, email

@@ -30,7 +30,8 @@ INSTALLED_APPS = [
     'apps.tenants',
     'apps.core_networks',
     'apps.ssl_manager',
-    'apps.monitor'
+    'apps.monitor',
+    'apps.mailboxsoap'
 ]
 
 MIDDLEWARE = [
