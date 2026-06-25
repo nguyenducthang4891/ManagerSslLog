@@ -1,0 +1,258 @@
+/* ==========================================================================
+   tables.css — Bộ định dạng bảng dữ liệu chuyên nghiệp
+   Dùng chung cho toàn bộ portal: Hạ tầng, SSL, Giám sát, Quản trị.
+   Chỉ override phần trình bày (presentation), không đổi cấu trúc HTML/JS
+   hiện có — tương thích trực tiếp với class Bootstrap đang dùng
+   (table, table-hover, align-middle, table-responsive, badge...).
+   ========================================================================== */
+
+:root {
+    --tbl-border: #e4e7ec;
+    --tbl-border-strong: #d6dae3;
+    --tbl-head-bg: #f7f8fa;
+    --tbl-head-text: #4a5263;
+    --tbl-row-hover: #f4f7fd;
+    --tbl-row-stripe: #fafbfc;
+    --tbl-text: #1f2430;
+    --tbl-text-muted: #6b7280;
+    --tbl-radius: 10px;
+    --tbl-accent: #0663c5;
+    --tbl-mono: "SFMono-Regular", "Consolas", "Roboto Mono", "Courier New", monospace;
+}
+
+/* --------------------------------------------------------------------
+   Khung bảng tổng thể: bo góc, viền mảnh, đổ bóng nhẹ thay cho
+   shadow-sm mặc định của Bootstrap (đậm/đều màu hơn).
+   -------------------------------------------------------------------- */
+.card.shadow-sm,
+.card.border-0.shadow-sm {
+    border-radius: var(--tbl-radius);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06) !important;
+}
+
+.table-responsive {
+    border-radius: var(--tbl-radius);
+}
+
+/* --------------------------------------------------------------------
+   Bảng dữ liệu chính
+   -------------------------------------------------------------------- */
+.table {
+    --bs-table-bg: transparent;
+    color: var(--tbl-text);
+    font-size: 0.875rem;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+/* Header: chữ in hoa nhẹ, letter-spacing, nền xám rất nhạt, viền dưới rõ */
+.table > thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.table > thead > tr > th {
+    background-color: var(--tbl-head-bg) !important;
+    color: var(--tbl-head-text);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    padding: 0.85rem 1rem;
+    border-bottom: 1.5px solid var(--tbl-border-strong);
+    border-top: none;
+    vertical-align: middle;
+}
+
+.table > thead > tr > th:first-child {
+    border-top-left-radius: var(--tbl-radius);
+}
+
+.table > thead > tr > th:last-child {
+    border-top-right-radius: var(--tbl-radius);
+}
+
+/* Body */
+.table > tbody > tr > td {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--tbl-border);
+    vertical-align: middle;
+    color: var(--tbl-text);
+}
+
+.table > tbody > tr:last-child > td {
+    border-bottom: none;
+}
+
+/* Vân kẻ sọc rất nhạt giúp đọc dòng dài (audit/mailbox/metric_detail) dễ hơn,
+   không lệ thuộc class .table-striped sẵn có */
+.table > tbody > tr:nth-of-type(even) > td {
+    background-color: var(--tbl-row-stripe);
+}
+
+/* Hover: ưu tiên hơn .table-hover mặc định, có dải accent bên trái để
+   định hướng mắt khi rê chuột qua các dòng log dài */
+.table-hover > tbody > tr:hover > td {
+    background-color: var(--tbl-row-hover);
+    box-shadow: inset 3px 0 0 0 var(--tbl-accent);
+}
+
+/* Dòng trạng thái rỗng / đang tải / lỗi — căn giữa, màu dịu, không phô */
+.table td.text-center.text-muted,
+.table td.text-center.text-danger {
+    padding: 2.25rem 1rem;
+    font-size: 0.85rem;
+}
+
+/* --------------------------------------------------------------------
+   Dữ liệu kỹ thuật: hostname, IP, mã, JSON, timestamp...
+   Đồng nhất font-monospace, màu chữ dịu hơn mặc định để không "gắt"
+   -------------------------------------------------------------------- */
+.table .font-monospace {
+    font-size: 0.82rem;
+    letter-spacing: 0.01em;
+}
+
+.table td.font-monospace.fw-bold,
+.table td.font-monospace.text-secondary {
+    color: #475467 !important;
+}
+
+/* --------------------------------------------------------------------
+   Badge trạng thái — bo tròn pill đồng nhất, viền mảnh, không dùng
+   nền màu đặc chói mắt như mặc định Bootstrap cho bảng dày dữ liệu
+   -------------------------------------------------------------------- */
+.table .badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 0.35em 0.65em;
+    border-radius: 6px;
+    text-transform: none;
+}
+
+.table .badge.rounded-pill {
+    border-radius: 999px;
+}
+
+/* Mức độ nghiêm trọng dùng riêng cho trang Giám sát (metric/metric_detail) */
+.badge.severity-ok,
+.table .badge.bg-success {
+    background-color: #ecfdf3 !important;
+    color: #067647 !important;
+    border: 1px solid #abefc6;
+}
+
+.badge.severity-warning,
+.table .badge.bg-warning {
+    background-color: #fffaeb !important;
+    color: #b54708 !important;
+    border: 1px solid #fedf89;
+}
+
+.badge.severity-critical,
+.table .badge.bg-danger {
+    background-color: #fef3f2 !important;
+    color: #b42318 !important;
+    border: 1px solid #fecdca;
+}
+
+.table .badge.bg-dark {
+    background-color: #f2f4f7 !important;
+    color: #344054 !important;
+    border: 1px solid #d0d5dd;
+}
+
+.table .badge.bg-info,
+.table .badge.text-bg-light {
+    background-color: #eff8ff !important;
+    color: #175cd3 !important;
+    border: 1px solid #b2ddff;
+}
+
+/* --------------------------------------------------------------------
+   Nút hành động trong ô cuối bảng — căn đều, thu nhỏ khoảng cách giữa
+   các icon-button trong btn-group cho gọn gàng chuyên nghiệp hơn
+   -------------------------------------------------------------------- */
+.table .btn-group-sm > .btn,
+.table .btn-sm {
+    border-radius: 6px;
+}
+
+.table .btn-group > .btn:not(:last-child) {
+    margin-right: 2px;
+}
+
+/* --------------------------------------------------------------------
+   Cột số liệu / tiến trình (CPU, RAM, Disk ở trang metric) — căn phải
+   để dễ so sánh theo cột, font monospace cho số liệu đồng đều
+   -------------------------------------------------------------------- */
+.table td.fw-semibold.font-monospace,
+.table th[data-numeric],
+.table td[data-numeric] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------
+   Trạng thái tải dữ liệu (infinite scroll / spinner) — tinh giản, ít
+   gây xao nhãng hơn so với spinner mặc định Bootstrap cỡ to
+   -------------------------------------------------------------------- */
+.table .spinner-border-sm {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-width: 0.15em;
+    opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------
+   Responsive: thu nhỏ vùng đệm và chữ trên màn hình hẹp, vẫn giữ
+   table-responsive (scroll ngang) làm cơ chế chính cho bảng nhiều cột
+   -------------------------------------------------------------------- */
+@media (max-width: 768px) {
+    .table > thead > tr > th,
+    .table > tbody > tr > td {
+        padding: 0.6rem 0.75rem;
+        font-size: 0.82rem;
+    }
+
+    .table > thead > tr > th {
+        font-size: 0.68rem;
+    }
+
+    /* Giữ cột đầu tiên cố định khi cuộn ngang trên các bảng log dài
+       (audit/mailbox/metric_detail) để không mất mốc thời gian */
+    .table-responsive .table > thead > tr > th:first-child,
+    .table-responsive .table > tbody > tr > td:first-child {
+        position: sticky;
+        left: 0;
+        background-color: inherit;
+        box-shadow: 2px 0 4px -2px rgba(16, 24, 40, 0.08);
+    }
+
+    .table > thead > tr > th:first-child {
+        background-color: var(--tbl-head-bg) !important;
+    }
+}
+
+/* --------------------------------------------------------------------
+   Khối terminal/log thô (cert_detail, audit modal) — đồng bộ font và
+   bo góc với hệ thống bảng, tránh lệch tông với phần card chứa nó
+   -------------------------------------------------------------------- */
+#terminal-console,
+#history-log-content,
+#auditOriginLogContent,
+#mailboxOriginLogContent {
+    font-family: var(--tbl-mono);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Modal log nền sáng (audit/mailbox) cần viền dịu hơn bản nền tối */
+#auditOriginLogContent,
+#mailboxOriginLogContent {
+    border: 1px solid var(--tbl-border);
+}

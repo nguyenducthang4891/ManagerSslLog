@@ -108,8 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Kiểm tra nghiệp vụ: Nếu Cert đang ở trạng thái deploy dở dang từ trước, tự động nối tiếp phiên quét log
-    const initialStatus = document.getElementById('cert-status') ? document.getElementById('cert-status').innerText.trim().toLowerCase() : '';
-    if (initialStatus === 'deploying' || initialStatus === 'đang deploy') {
+    // Dùng biến server-side window.CERT_INITIAL_STATUS (chính xác 100%, không phụ thuộc
+    // text hiển thị trên badge -- vốn có thể bị đổi nhãn tiếng Việt sau này).
+    const initialStatus = (window.CERT_INITIAL_STATUS || '').toLowerCase();
+    if (initialStatus === 'deploying') {
         lockDeployButton(true);
         startPollingLog();
     }
@@ -147,9 +149,9 @@ function checkSslLive(certId) {
                 `;
             }
         }).catch(err => {
-            resultDiv.className = "mt-3 alert alert-danger";
-            resultDiv.innerHTML = "Lỗi mạng hoặc không thể kết nối tới API hệ thống.";
-        });
+        resultDiv.className = "mt-3 alert alert-danger";
+        resultDiv.innerHTML = "Lỗi mạng hoặc không thể kết nối tới API hệ thống.";
+    });
 }
 
 /**
@@ -163,16 +165,16 @@ function deleteCertificate(certId) {
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
             }
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data.message) {
-                alert(data.message);
-                // Điều hướng quay lại kho lưu trữ danh sách SSL
-                window.location.href = "/ssl/certificates/";
-            } else {
-                alert("Lỗi hệ thống: " + data.error);
-            }
-        }).catch(err => {
+            .then(res => res.json())
+            .then(data => {
+                if (data.message) {
+                    alert(data.message);
+                    // Điều hướng quay lại kho lưu trữ danh sách SSL
+                    window.location.href = "/ssl/certificates/";
+                } else {
+                    alert("Lỗi hệ thống: " + data.error);
+                }
+            }).catch(err => {
             alert("Không thể kết nối tới máy chủ để thực hiện lệnh xóa.");
         });
     }
@@ -184,12 +186,12 @@ function deleteCertificate(certId) {
 async function startDeploy() {
     lockDeployButton(true);
 
-    const consoleBox = document.getElementById('realtime-log-content');
+    const consoleBox = document.getElementById('terminal-console');
     if (consoleBox) {
         consoleBox.textContent = ">>> Đang gửi yêu cầu khởi tạo phiên làm việc SSH đến máy chủ Zimbra...\n";
     }
 
-    const result = await fetchJSON(window.CERT_DETAIL_URLS.apiTriggerDeploy, { method: 'POST' });
+    const result = await fetchJSON(window.CERT_DETAIL_URLS.apiTriggerDeploy, {method: 'POST'});
     if (result.ok) {
         updateStatusBadge('deploying', 'Đang deploy');
         startPollingLog();
@@ -208,14 +210,14 @@ function startPollingLog() {
     if (logInterval) clearInterval(logInterval);
 
     logInterval = setInterval(async () => {
-        const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetRealtimeLog, { method: 'GET' });
+        const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetRealtimeLog, {method: 'GET'});
         if (!result.ok) return;
 
         const data = result.data;
-        const consoleBox = document.getElementById('realtime-log-content');
+        const consoleBox = document.getElementById('terminal-console');
 
         if (consoleBox) {
-            consoleBox.textContent = data.log || '';
+            consoleBox.textContent = data.deploy_log || '';
             consoleBox.scrollTop = consoleBox.scrollHeight;
         }
 
@@ -224,10 +226,16 @@ function startPollingLog() {
             clearInterval(logInterval);
             logInterval = null;
 
-            // Khôi phục trạng thái giao diện trực quan
             updateStatusBadge(data.status, data.status_display);
             lockDeployButton(false);
             reloadDeployHistory();
+
+            // ✅ THÊM: Reload sau 2 giây (chỉ khi thành công)
+            if (data.status === 'deployed') {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000); // 2 giây
+            }
         }
     }, 1500); // Tần suất quét 1.5 giây một lần để tối ưu tài nguyên IO máy chủ
 }
@@ -239,7 +247,7 @@ async function reloadDeployHistory() {
     const tableBody = document.getElementById('deploy-history-body');
     if (!tableBody) return;
 
-    const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetDeployHistory, { method: 'GET' });
+    const result = await fetchJSON(window.CERT_DETAIL_URLS.apiGetDeployHistory, {method: 'GET'});
     if (!result.ok) {
         tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Không thể tải danh sách lịch sử.</td></tr>`;
         return;
@@ -283,7 +291,7 @@ async function viewHistoryLog(historyId) {
     }
     toggleModal('history-log-modal', true);
 
-    const result = await fetchJSON(url, { method: 'GET' });
+    const result = await fetchJSON(url, {method: 'GET'});
     if (result.ok && contentBox) {
         contentBox.textContent = result.data.log_snapshot || '(Lần deploy này không ghi nhận cấu hình log lưu lại.)';
     } else if (contentBox) {
@@ -311,20 +319,19 @@ function lockDeployButton(shouldLock) {
  * Cập nhật màu sắc CSS & Text động cho Badge Trạng thái hiện tại
  */
 function updateStatusBadge(status, displayText) {
-    const badge = document.getElementById('cert-status');
+    const badge = document.getElementById('cert-status-badge');
     if (!badge) return;
 
     badge.innerText = displayText;
-    // Khôi phục các class CSS của Bootstrap sub-colors về mặc định trước khi gán mới
-    badge.className = "fw-semibold text-uppercase px-2 py-1 rounded small";
+    badge.className = "badge";
 
     if (status === 'deployed') {
-        badge.classList.add('bg-success-subtle', 'text-success-emphasis');
+        badge.classList.add('bg-success');
     } else if (status === 'deploying') {
-        badge.classList.add('bg-warning-subtle', 'text-warning-emphasis');
+        badge.classList.add('bg-info');
     } else if (status === 'failed') {
-        badge.classList.add('bg-danger-subtle', 'text-danger-emphasis');
+        badge.classList.add('bg-danger');
     } else {
-        badge.classList.add('bg-secondary-subtle', 'text-secondary-emphasis');
+        badge.classList.add('bg-secondary');
     }
 }

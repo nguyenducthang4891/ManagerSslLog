@@ -53,6 +53,16 @@
         </table>
 
         <div class="d-flex gap-2">
+            {% if cert.status != 'deploying' %}
+                <button id="btn-deploy" class="btn btn-success btn-sm">
+                    <i class="bi bi-rocket-takeoff me-1"></i>Triển khai ngay lên Zimbra
+                </button>
+            {% else %}
+                <button id="btn-deploy" class="btn btn-success btn-sm disabled" disabled>
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Đang triển khai...
+                </button>
+            {% endif %}
+
             <button id="btn-check-ssl-live" class="btn btn-outline-primary btn-sm" onclick="checkSslLive({{ cert.id }})">
                 <i class="fa fa-sync"></i> Kiểm tra cài đặt SSL thực tế
             </button>

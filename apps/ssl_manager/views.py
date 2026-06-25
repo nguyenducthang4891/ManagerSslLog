@@ -86,13 +86,12 @@ def api_trigger_deploy(request, cert_id):
     return JsonResponse({'message': 'Tiến trình deploy đã được kích hoạt chạy ngầm.'})
 
 
-@login_required(login_url='login')
 def api_get_realtime_log(request, cert_id):
-    """API cốt lõi phục vụ Polling Log liên tục ở giao diện người dùng"""
     try:
         cert = SSLLifecycleService.get_detail(request.user, cert_id)
         return JsonResponse({
             'status': cert.status,
+            'status_display': cert.get_status_display(),  # ✅ THÊM DÒNG NÀY
             'deploy_log': cert.deploy_log or 'Đang khởi tạo kết nối SSH...'
         })
     except ValidationError as e:
@@ -152,11 +151,14 @@ def api_update_cert(request, cert_id):
         return JsonResponse({'error': 'Method not allowed'}, status=405)
 
     try:
+        # ✅ Validate quyền trước, trước khi nhận files
+        cert = SSLLifecycleService.get_detail(request.user, cert_id)
+
+        # Giờ mới nhận files nếu quyền ok
         SSLLifecycleService.update_certificate(
             user=request.user,
             cert_id=cert_id,
             domain_id=int(request.POST.get('domain_id')),
-            name=request.POST.get('name'),
             root_file=request.FILES.get('root_cert'),
             inter_file=request.FILES.get('inter_cert'),
             server_file=request.FILES.get('server_cert'),
