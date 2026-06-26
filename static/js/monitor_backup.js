@@ -1,34 +1,25 @@
 /**
- * monitor_backup.js
- * Logic trang Giám sát Backup Mailbox (log-backup-*) -- dạng bảng, theo
- * ĐÚNG khuôn monitor_mailbox.js (KHÔNG có realtime WebSocket, vì đây là
- * log tra cứu lịch sử backup, không cần cập nhật liên tục từng giây).
+ * monitor_backup.js - VERSION 2
+ * Logic trang Giám sát Backup Mailbox (log-backup-*)
+ *
+ * ⭐ THAY ĐỔI: Bỏ filter "giờ/ngày", thay vào dùng Date Picker (từ ngày - đến ngày)
  *
  * PHÂN TRANG: dạng "tải thêm khi kéo scroll" (infinite scroll) -- dùng
- * IntersectionObserver quan sát 1 dòng "sentinel" vô hình ở cuối bảng,
- * giống monitor_mailbox.js/monitor_audit.js.
- *
- * THÊM RIÊNG (khác mailbox): loadBackupSummary() -- gọi API thống kê
- * tổng hợp (api_backup_summary) CHẠY SONG SONG với loadBackupPage() mỗi
- * khi đổi filter/tenant, để cập nhật 4 thẻ số liệu phía trên bảng (số tài
- * khoản đã backup, tổng dung lượng, số thất bại, số không có email mới)
- * -- đúng mục đích ban đầu (thống kê theo ngày).
+ * IntersectionObserver quan sát 1 dòng "sentinel" vô hình ở cuối bảng.
  */
 
 const API_BACKUP_URL = '/monitor/api/backup/';
 const API_BACKUP_SUMMARY_URL = '/monitor/api/backup/summary/';
 
 window.MONITOR_IS_SUPERUSER = window.MONITOR_IS_SUPERUSER || false;
-window.MONITOR_TENANT_ID = null; // Superuser: chưa chọn gì khi tải trang lần đầu.
+window.MONITOR_TENANT_ID = null;
 window.MONITOR_USER_TENANT_ID = window.MONITOR_USER_TENANT_ID || null;
 
 const BACKUP_PAGE_SIZE = 50;
 
-// State phân trang -- reset về trang 1 + xóa dữ liệu cũ mỗi khi đổi filter
-// (xem resetAndLoadBackup()); tăng dần khi observer kích hoạt load thêm.
 let backupCurrentPage = 1;
 let backupTotalPages = 1;
-let backupIsLoading = false;   // chặn gọi API trùng lặp khi observer bắn liên tục
+let backupIsLoading = false;
 let backupObserver = null;
 
 function hasActiveScopeBackup() {
@@ -36,13 +27,18 @@ function hasActiveScopeBackup() {
     return !!window.MONITOR_TENANT_ID;
 }
 
-/** Tenant dùng để build URL gọi API chi tiết (modal) -- giống mailbox/audit. */
 function currentTenantIdForBackupDetail() {
     return window.MONITOR_IS_SUPERUSER ? window.MONITOR_TENANT_ID : window.MONITOR_USER_TENANT_ID;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     setupBackupScrollObserver();
+
+    // ⭐ Set default dates (hôm nay)
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    document.getElementById('backupDateFrom').value = todayStr;
+    document.getElementById('backupDateTo').value = todayStr;
 
     if (hasActiveScopeBackup()) {
         resetAndLoadBackup();
@@ -73,16 +69,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 resetAndLoadBackup();
             } else {
                 renderSelectTenantPlaceholderBackup();
-                renderBackupSummary(null); // Chưa chọn tenant -- xóa số liệu thẻ thống kê về 0.
+                renderBackupSummary(null);
             }
         });
     }
 });
 
-/**
- * Tạo 1 dòng "sentinel" (vô hình, cao 1px) ngay sau tbody, và 1
- * IntersectionObserver theo dõi dòng đó -- giống setupMailboxScrollObserver().
- */
 function setupBackupScrollObserver() {
     const tbody = document.getElementById('backupTableBody');
     if (!tbody) return;
@@ -94,7 +86,6 @@ function setupBackupScrollObserver() {
     }, { root: null, rootMargin: '0px 0px 200px 0px', threshold: 0 });
 }
 
-/** Đặt lại dòng sentinel ở cuối tbody và (re-)đăng ký observer theo dõi nó. */
 function ensureBackupSentinel() {
     const tbody = document.getElementById('backupTableBody');
     let sentinel = document.getElementById('backupScrollSentinel');
@@ -108,12 +99,6 @@ function ensureBackupSentinel() {
     if (backupObserver) backupObserver.observe(sentinel);
 }
 
-/**
- * Đổi filter (tenant/submit form/làm mới) -- xóa dữ liệu cũ, quay về
- * trang 1, tải lại từ đầu. Gọi ĐỒNG THỜI loadBackupPage() (bảng chi
- * tiết) và loadBackupSummary() (4 thẻ thống kê) -- 2 API độc lập, không
- * cái nào chặn cái nào.
- */
 function resetAndLoadBackup() {
     backupCurrentPage = 1;
     backupTotalPages = 1;
@@ -123,10 +108,9 @@ function resetAndLoadBackup() {
     loadBackupSummary();
 }
 
-/** Observer gọi hàm này khi cuộn gần cuối bảng -- chỉ tải tiếp nếu còn trang và không đang tải. */
 function loadMoreBackupLogs() {
     if (backupIsLoading) return;
-    if (backupCurrentPage >= backupTotalPages) return; // đã tải hết, không còn trang nào
+    if (backupCurrentPage >= backupTotalPages) return;
     backupCurrentPage += 1;
     loadBackupPage(false);
 }
@@ -138,19 +122,27 @@ function renderSelectTenantPlaceholderBackup() {
     if (footer) footer.innerHTML = '';
 }
 
-/** Build query params DÙNG CHUNG cho cả loadBackupPage() và loadBackupSummary() -- cùng 1 bộ filter (thời gian + loại backup + tenant). */
+/**
+ * ⭐ BUILD QUERY PARAMS - SỬA LẠI
+ * Thay vì hours/days, giờ dùng dateFrom/dateTo (ISO format: YYYY-MM-DD)
+ *
+ * API sẽ nhận parameters: date_from, date_to, backup_mode
+ * Backend sẽ convert sang Elasticsearch date range query
+ */
 function buildBackupQueryParamsBase() {
-    const rangeTypeEl = document.getElementById('backupRangeType');
-    const rangeValueEl = document.getElementById('backupRangeValue');
+    const dateFromEl = document.getElementById('backupDateFrom');
+    const dateToEl = document.getElementById('backupDateTo');
     const modeEl = document.getElementById('backupMode');
 
-    const rangeType = rangeTypeEl ? rangeTypeEl.value : 'days';
-    let rangeValue = rangeValueEl ? rangeValueEl.value.trim() : '1';
-    if (!rangeValue || isNaN(rangeValue)) rangeValue = '1';
+    const dateFrom = dateFromEl ? dateFromEl.value : '';
+    const dateTo = dateToEl ? dateToEl.value : '';
 
-    let params = `${rangeType}=${rangeValue}`;
-    if (modeEl && modeEl.value) params += `&backup_mode=${encodeURIComponent(modeEl.value)}`;
-    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += `&tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
+    let params = '';
+    if (dateFrom) params += `date_from=${encodeURIComponent(dateFrom)}`;
+    if (dateTo) params += (params ? '&' : '') + `date_to=${encodeURIComponent(dateTo)}`;
+    if (modeEl && modeEl.value) params += (params ? '&' : '') + `backup_mode=${encodeURIComponent(modeEl.value)}`;
+    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += (params ? '&' : '') + `tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
+
     return params;
 }
 
@@ -159,17 +151,12 @@ function buildBackupQueryParams() {
     const searchAccountEl = document.getElementById('backupSearchAccount');
 
     let params = buildBackupQueryParamsBase();
-    if (statusEl && statusEl.value) params += `&status=${encodeURIComponent(statusEl.value)}`;
-    if (searchAccountEl && searchAccountEl.value.trim()) params += `&search_account=${encodeURIComponent(searchAccountEl.value.trim())}`;
-    params += `&page=${backupCurrentPage}&page_size=${BACKUP_PAGE_SIZE}`;
+    if (statusEl && statusEl.value) params += (params ? '&' : '') + `status=${encodeURIComponent(statusEl.value)}`;
+    if (searchAccountEl && searchAccountEl.value.trim()) params += (params ? '&' : '') + `search_account=${encodeURIComponent(searchAccountEl.value.trim())}`;
+    params += (params ? '&' : '') + `page=${backupCurrentPage}&page_size=${BACKUP_PAGE_SIZE}`;
     return params;
 }
 
-/**
- * isFirstLoad=true: trang 1, tbody đang được XÓA SẠCH và render lại từ đầu.
- * isFirstLoad=false: trang kế tiếp do observer kích hoạt, NỐI thêm dòng
- * vào tbody hiện có, không xóa gì cả.
- */
 async function loadBackupPage(isFirstLoad) {
     backupIsLoading = true;
     renderBackupLoadFooter('loading');
@@ -196,44 +183,30 @@ async function loadBackupPage(isFirstLoad) {
 }
 
 /**
- * ⭐ GỌI API THỐNG KÊ TỔNG HỢP -- Chạy song song với loadBackupPage() nhưng
- * không phải data.items, mà là data chứa unique_accounts_backed_up, total_size_bytes...
- * Phục vụ đúng mục đích: "hôm nay backup được mấy tài khoản duy nhất, tổng bao nhiêu bytes"
- * -- KHÔNG thể suy ra từ pagination query.
- */
-/**
- * ⭐ GỌI API THỐNG KÊ TỔNG HỢP
- * - Kiểm tra xem user đã chọn tenant (nếu superuser) chưa
- * - Không gọi API nếu chưa có valid scope
+ * ⭐ Gọi API thống kê tổng hợp
+ * Kiểm tra scope trước khi gọi
  */
 async function loadBackupSummary() {
-    // ⭐ Kiểm tra xem có scope hợp lệ không
-    // hasActiveScopeBackup() trả về true nếu:
-    //   - Non-superuser (có tenant mặc định)
-    //   - Superuser + đã chọn tenant
     if (!hasActiveScopeBackup()) {
         renderBackupSummary(null);
         return;
     }
 
     const queryStr = buildBackupQueryParamsBase();
-    console.log('Loading backup summary with params:', queryStr);  // Debug
+    console.log('Loading backup summary with params:', queryStr);
 
     try {
         const url = `${API_BACKUP_SUMMARY_URL}?${queryStr}`;
-        console.log('API URL:', url);  // Debug
-
         const response = await fetch(url);
 
         if (!response.ok) {
-            // ⭐ Debug: In ra response error chi tiết
             const errorText = await response.text();
             console.error(`API summary HTTP ${response.status}:`, errorText);
             throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('API summary response:', data);  // Debug
+        console.log('API summary response:', data);
 
         if (data.error) {
             console.error('API summary error:', data.error);
@@ -256,7 +229,6 @@ function formatBytesBackup(bytes) {
     return `${num.toFixed(1)} ${sizes[i]}`;
 }
 
-/** data=null -- chưa có scope/lỗi tải, đưa 4 thẻ về trạng thái rỗng (0). */
 function renderBackupSummary(data) {
     const elAccounts = document.getElementById('summary-unique-accounts');
     const elSize = document.getElementById('summary-total-size');
@@ -277,7 +249,6 @@ function renderBackupSummary(data) {
     if (elNoContent) elNoContent.textContent = data.no_content_count || 0;
 }
 
-/** Hiển thị trạng thái dưới bảng: đang tải / đã hết dữ liệu / lỗi -- KHÔNG dùng nút bấm, chỉ là chỉ báo trực quan cho infinite scroll. */
 function renderBackupLoadFooter(state, total, errorMessage) {
     let footer = document.getElementById('backupLoadFooter');
     if (!footer) {
@@ -301,21 +272,11 @@ function renderBackupLoadFooter(state, total, errorMessage) {
     }
 }
 
-/**
- * Convert chuỗi @timestamp UTC (vd "2026-06-26T03:14:27.000Z") sang giờ
- * Việt Nam (GMT+7) để hiển thị trên UI -- log gốc luôn lưu UTC (chuẩn ES/
- * Logstash), nhưng người dùng xem ở VN nên hiển thị phải +7 giờ, KHÔNG
- * hiển thị thẳng chuỗi UTC thô như cách cũ (gây lệch 7 tiếng so với giờ
- * thực tế).
- */
 function formatVNTimeBackup(utcTimestamp) {
     if (!utcTimestamp) return '-';
-    const date = new Date(utcTimestamp); // JS tự parse đúng UTC nếu chuỗi có "Z" ở cuối
+    const date = new Date(utcTimestamp);
     if (isNaN(date.getTime())) return '-';
 
-    // Dùng Intl với timeZone 'Asia/Ho_Chi_Minh' -- tự xử lý đúng GMT+7,
-    // không cộng tay 7*3600*1000 (cách cộng tay dễ sai nếu server/browser
-    // đổi giờ hệ thống, và không tự thích ứng nếu sau này đổi sang locale khác).
     const formatter = new Intl.DateTimeFormat('vi-VN', {
         timeZone: 'Asia/Ho_Chi_Minh',
         year: 'numeric', month: '2-digit', day: '2-digit',
@@ -326,6 +287,7 @@ function formatVNTimeBackup(utcTimestamp) {
     const get = (type) => parts.find(p => p.type === type)?.value || '';
     return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
 }
+
 function modeBadgeBackup(mode) {
     if (mode === 'full') return '<span class="badge bg-primary">Full</span>';
     if (mode === 'inc') return '<span class="badge bg-info text-dark">Incremental</span>';
@@ -358,12 +320,6 @@ function backupRowHtml(item) {
     `;
 }
 
-/**
- * isFirstLoad=true: xóa sạch tbody (kể cả dòng "Đang tải..." ban đầu) rồi
- * render items từ đầu. isFirstLoad=false: giữ nguyên dòng đã có, CHÈN
- * thêm dòng mới vào TRƯỚC dòng sentinel (luôn phải nằm cuối cùng để
- * observer tiếp tục theo dõi đúng vị trí).
- */
 function appendBackupRows(items, isFirstLoad) {
     const tbody = document.getElementById('backupTableBody');
 
@@ -390,7 +346,6 @@ function appendBackupRows(items, isFirstLoad) {
     }
 }
 
-/** Mở modal xem JSON đầy đủ của 1 document -- gọi API riêng theo tenant_id (path) + doc_id. */
 async function openBackupOriginLog(docId) {
     const tenantId = currentTenantIdForBackupDetail();
     const metaEl = document.getElementById('backupOriginLogMeta');
@@ -411,10 +366,6 @@ async function openBackupOriginLog(docId) {
             if (data.error) {
                 contentEl.textContent = data.error;
             } else {
-                // Hiển thị TOÀN BỘ _source dạng JSON pretty-print -- giống
-                // cách mailbox xử lý (không có 1 field "message" gốc duy
-                // nhất, dữ liệu đã ở dạng nhiều field riêng từ Filebeat
-                // json.keys_under_root).
                 contentEl.textContent = JSON.stringify(data, null, 2);
                 const t = formatVNTimeBackup(data['@timestamp']);
                 metaEl.innerHTML = `<strong>Tài khoản:</strong> ${escapeHtmlTextBackup(data.account || '-')}

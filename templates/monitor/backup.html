@@ -35,10 +35,7 @@
 </div>
 {% endif %}
 
-<!-- Thẻ thống kê tổng hợp -- ĐÚNG mục đích ban đầu: số tài khoản đã backup
-     thành công + tổng dung lượng trong khoảng thời gian đang chọn ở form
-     lọc bên dưới (gọi lại api_backup_summary mỗi khi đổi filter, xem
-     monitor_backup.js: loadBackupSummary() chạy song song với loadBackupPage()). -->
+<!-- Thẻ thống kê tổng hợp -->
 <div class="row g-3 mb-4">
     <div class="col-md-3">
         <div class="card border-0 shadow-sm bg-success text-white">
@@ -89,16 +86,14 @@
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body">
         <form id="backupFilterForm" class="row g-2 align-items-end">
+            <!-- ⭐ SỬA: Thay dropdown giờ/ngày bằng date picker -->
             <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted">Loại thời gian</label>
-                <select class="form-select form-select-sm" id="backupRangeType">
-                    <option value="hours">Theo giờ</option>
-                    <option value="days" selected>Theo ngày</option>
-                </select>
+                <label class="form-label small fw-bold text-muted">Từ ngày</label>
+                <input type="date" class="form-control form-control-sm" id="backupDateFrom">
             </div>
             <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted">Số ngày</label>
-                <input type="number" class="form-control form-control-sm font-monospace" id="backupRangeValue" value="1" min="1">
+                <label class="form-label small fw-bold text-muted">Đến ngày</label>
+                <input type="date" class="form-control form-control-sm" id="backupDateTo">
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-bold text-muted">Loại Backup</label>
@@ -118,11 +113,11 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label small fw-bold text-muted">Tìm theo Tài khoản</label>
-                <input type="text" class="form-control form-control-sm" id="backupSearchAccount" placeholder="ví dụ: dplong1@cantho.gov.vn">
+                <input type="text" class="form-control form-control-sm" id="backupSearchAccount" placeholder="ví dụ: dplong1@...">
             </div>
-            <div class="col-md-1 text-end">
+            <div class="col-md-2 text-end">
                 <button type="submit" class="btn btn-dark btn-sm w-100"><i class="bi bi-search"></i></button>
             </div>
         </form>
