@@ -18,7 +18,7 @@ index khớp điều kiện, không chỉ trang hiện tại.
 GHI CHÚ MAPPING: áp dụng "match" (không phải "term") cho mọi field
 categorical đến từ pipeline (backup_mode, status, tenant_code) -- giống lý
 do đã nêu trong mailbox.py/audit.py: phòng trường hợp giá trị bị ghi dưới
-dạng mảng 1 phần tử (vd: ["inc"]) tùy theo agent/phiên bản pipeline.
+dạng mảy 1 phần tử (vd: ["inc"]) tùy theo agent/phiên bản pipeline.
 """
 from apps.tenants.models import Tenant
 from apps.monitor.services.base import (
@@ -51,7 +51,7 @@ def _fix_tenant_filter(filter_: list, effective_tenant: Tenant | None) -> None:
     Sửa điều kiện tenant_code do base_filter() sinh ra (đang dùng "term"
     trên "tenant_code.keyword") -- đổi sang "match" trên field gốc
     "tenant_code", giống cách mailbox.py/audit.py đã vá: phòng trường hợp
-    giá trị được ghi dưới dạng mảng.
+    giá trị được ghi dưới dạng mảy.
     """
     if effective_tenant is None:
         return
@@ -74,7 +74,7 @@ class BackupService:
               page_size: int = DEFAULT_PAGE_SIZE) -> dict:
         """
         search_account: tìm theo account (tên tài khoản mailbox đã backup)
-        -- match (không phải term), khoan dung với mảng/không phân biệt
+        -- match (không phải term), khoan dung với mảy/không phân biệt
         hoa-thường do account luôn lowercase từ LDAP, nhưng vẫn chuẩn hóa
         ở đây để chắc chắn.
 
@@ -93,17 +93,17 @@ class BackupService:
         _fix_tenant_filter(filter_, effective_tenant)
 
         # "match" thay "term" cho backup_mode/status -- xem docstring đầu
-        # file: khoan dung với giá trị dạng mảng do pipeline ghi vào.
+        # file: khoan dung với giá trị dạng mảy do pipeline ghi vào.
         if backup_mode:
             filter_.append({"match": {"backup_mode": backup_mode}})
 
         if status:
             filter_.append({"match": {"status": status}})
 
-        query_body = {"bool": {"filter": filter_}}
-
         if search_account:
             filter_.append({"match": {"account": search_account.strip().lower()}})
+
+        query_body = {"bool": {"filter": filter_}}
 
         hits, total = run_search_paginated(
             client, INDEX_PATTERN, query_body, cluster.name,
@@ -136,23 +136,17 @@ class BackupService:
         TOÀN BỘ index khớp điều kiện (không chỉ trang hiện tại), gồm:
             - success_count / failed_count / no_content_count: đếm theo
               "status" (terms aggregation theo từng giá trị).
-            - unique_accounts: SỐ TÀI KHOẢN DUY NHẤT đã có ít nhất 1 bản
+            - unique_accounts_backed_up: SỐ TÀI KHOẢN DUY NHẤT đã có ít nhất 1 bản
               ghi SUCCESS trong khoảng thời gian (cardinality aggregation
-              trên field tạm "account_norm", xem runtime_mappings bên dưới)
-              -- khác hẳn "total" của query(), vì 1 account có thể backup
-              nhiều lần/ngày (full + inc chạy nhiều lượt) nên đếm dòng log
-              không phản ánh đúng số tài khoản thực tế đã được backup.
+              trên field "account") -- khác hẳn "total" của query(), vì 1 account
+              có thể backup nhiều lần/ngày (full + inc chạy nhiều lượt) nên đếm
+              dòng log không phản ánh đúng số tài khoản thực tế đã được backup.
             - total_size_bytes: TỔNG dung lượng (sum aggregation trên
               field "size_bytes", field số đã được Logstash chuẩn hóa từ
               chuỗi "4.0K"/"28K" sang bytes -- xem logstash/conf.d/backup.conf).
 
-        AN TOÀN VỚI MAPPING CHƯA CHUẨN: dùng runtime_mappings để tự tạo
-        field "status_norm"/"account_norm" ngay trong câu query -- không
-        phụ thuộc việc field gốc đã được index là "text"/"keyword", hay có
-        sẵn sub-field ".keyword" hay chưa (tức không cần áp index template
-        trước mới hoạt động đúng, dù vẫn KHUYẾN NGHỊ áp template để có
-        hiệu năng tốt hơn về lâu dài, vì runtime field tính toán lúc query
-        sẽ chậm hơn field đã được index sẵn khi dữ liệu lớn).
+        ⭐ FIX: Không dùng runtime_mappings (quá phức tạp), thay vào đó
+        dùng thẳng field từ Logstash đã normalize (status_norm, size_bytes).
         """
         require_tenant_scope(user)
         effective_tenant = get_effective_tenant(user, tenant)
@@ -174,49 +168,23 @@ class BackupService:
                 index=INDEX_PATTERN,
                 query=query_body,
                 size=0,  # Không cần lấy hits, chỉ cần kết quả aggregation.
-                # ⭐ FIX: dùng runtime_mappings để tự tạo 2 field tạm thời
-                # "status_norm"/"account_norm" ngay trong câu query, KHÔNG
-                # phụ thuộc vào việc field gốc "status"/"account" đang được
-                # Elasticsearch map là "text", "keyword", hay bị ghi vào
-                # dưới dạng mảng 1 phần tử (["SUCCESS"], ["dplong1@..."]) --
-                # nguyên nhân thực tế khiến aggregation cũ (dùng thẳng
-                # "account.keyword") trả về toàn 0 khi chưa áp index
-                # template (dynamic mapping của ES có thể không sinh sẵn
-                # sub-field ".keyword" như kỳ vọng).
-                #
-                # "doc['field'].value" của Painless tự lấy ĐÚNG 1 giá trị
-                # cho field dạng keyword/text dù field gốc được index dưới
-                # dạng mảng 1 phần tử hay giá trị đơn -- không cần tự viết
-                # logic xử lý mảng. emit() bỏ qua an toàn nếu field không
-                # tồn tại trên document đó (tránh lỗi NullPointerException).
-                runtime_mappings={
-                    "status_norm": {
-                        "type": "keyword",
-                        "script": {
-                            "source": (
-                                "if (!doc.containsKey('status') || doc['status'].size() == 0) { return; }"
-                                "emit(doc['status'].value);"
-                            )
-                        },
-                    },
-                    "account_norm": {
-                        "type": "keyword",
-                        "script": {
-                            "source": (
-                                "if (!doc.containsKey('account') || doc['account'].size() == 0) { return; }"
-                                "emit(doc['account'].value);"
-                            )
-                        },
-                    },
-                },
                 aggs={
-                    "by_status": {"terms": {"field": "status_norm", "size": 10}},
+                    # ⭐ Thống kê theo status -- dùng "status" field (đã normalize bởi Logstash)
+                    "by_status": {
+                        "terms": {
+                            "field": "status",
+                            "size": 10
+                        }
+                    },
+                    # ⭐ Đếm số tài khoản DUYÊN NHẤT có status=SUCCESS
+                    # (không phải đếm số dòng log -- mà đếm số account khác nhau)
                     "unique_accounts_success": {
-                        "filter": {"term": {"status_norm": "SUCCESS"}},
+                        "filter": {"term": {"status": "SUCCESS"}},
                         "aggs": {
-                            "count": {"cardinality": {"field": "account_norm"}}
+                            "count": {"cardinality": {"field": "account"}}
                         },
                     },
+                    # ⭐ Tổng dung lượng backup (bytes)
                     "total_size": {"sum": {"field": "size_bytes"}},
                 },
             )
@@ -224,6 +192,7 @@ class BackupService:
             from django.core.exceptions import ValidationError
             raise ValidationError(f"Không thể truy vấn cụm ELK ({cluster.name}): {str(e)}")
 
+        # ⭐ Xây dựng response từ aggregation results
         status_buckets = {b["key"]: b["doc_count"] for b in result["aggregations"]["by_status"]["buckets"]}
         unique_accounts = result["aggregations"]["unique_accounts_success"]["count"]["value"]
         total_size_bytes = result["aggregations"]["total_size"]["value"] or 0

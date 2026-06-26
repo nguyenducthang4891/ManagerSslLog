@@ -180,50 +180,80 @@ async function loadBackupPage(isFirstLoad) {
         if (!response.ok) throw new Error(`Mã lỗi HTTP: ${response.status}`);
         const data = await response.json();
 
-        backupTotalPages = data.total_pages || 1;
-        appendBackupRows(data.items || [], isFirstLoad);
-        renderBackupLoadFooter('idle', data.total || 0);
-    } catch (error) {
-        const tbody = document.getElementById('backupTableBody');
-        if (isFirstLoad) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-4">${escapeHtmlTextBackup(error.message || 'Lỗi truy vấn dữ liệu.')}</td></tr>`;
+        if (data.error) {
+            renderBackupLoadFooter('error', null, data.error);
+        } else {
+            backupTotalPages = data.total_pages || 1;
+            appendBackupRows(data.items || [], isFirstLoad);
+            renderBackupLoadFooter(null, data.total);
         }
-        renderBackupLoadFooter('error', 0, error.message);
-        // Lùi lại page để lần kéo scroll tiếp theo có thể thử lại trang
-        // vừa lỗi, không bị "kẹt" mãi ở trang đã tăng nhưng chưa tải được.
-        if (!isFirstLoad) backupCurrentPage -= 1;
+    } catch (e) {
+        console.error('Error loading backup page:', e);
+        renderBackupLoadFooter('error', null, e.message || 'Lỗi hệ thống');
     } finally {
         backupIsLoading = false;
     }
 }
 
 /**
- * Gọi api_backup_summary -- ĐỘC LẬP với loadBackupPage(), dùng CHUNG bộ
- * filter thời gian/loại backup/tenant (KHÔNG áp status/search_account, vì
- * 4 thẻ thống kê luôn thể hiện TOÀN CẢNH của khoảng thời gian đã chọn,
- * không bị bó hẹp theo riêng status/account đang lọc trên bảng chi tiết
- * -- tránh gây hiểu lầm "tổng dung lượng" chỉ tính trên kết quả đang lọc).
+ * ⭐ GỌI API THỐNG KÊ TỔNG HỢP -- Chạy song song với loadBackupPage() nhưng
+ * không phải data.items, mà là data chứa unique_accounts_backed_up, total_size_bytes...
+ * Phục vụ đúng mục đích: "hôm nay backup được mấy tài khoản duy nhất, tổng bao nhiêu bytes"
+ * -- KHÔNG thể suy ra từ pagination query.
+ */
+/**
+ * ⭐ GỌI API THỐNG KÊ TỔNG HỢP
+ * - Kiểm tra xem user đã chọn tenant (nếu superuser) chưa
+ * - Không gọi API nếu chưa có valid scope
  */
 async function loadBackupSummary() {
+    // ⭐ Kiểm tra xem có scope hợp lệ không
+    // hasActiveScopeBackup() trả về true nếu:
+    //   - Non-superuser (có tenant mặc định)
+    //   - Superuser + đã chọn tenant
+    if (!hasActiveScopeBackup()) {
+        renderBackupSummary(null);
+        return;
+    }
+
     const queryStr = buildBackupQueryParamsBase();
+    console.log('Loading backup summary with params:', queryStr);  // Debug
+
     try {
-        const response = await fetch(`${API_BACKUP_SUMMARY_URL}?${queryStr}`);
-        if (!response.ok) throw new Error(`Mã lỗi HTTP: ${response.status}`);
+        const url = `${API_BACKUP_SUMMARY_URL}?${queryStr}`;
+        console.log('API URL:', url);  // Debug
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            // ⭐ Debug: In ra response error chi tiết
+            const errorText = await response.text();
+            console.error(`API summary HTTP ${response.status}:`, errorText);
+            throw new Error(`HTTP ${response.status}`);
+        }
+
         const data = await response.json();
-        renderBackupSummary(data);
-    } catch (error) {
+        console.log('API summary response:', data);  // Debug
+
+        if (data.error) {
+            console.error('API summary error:', data.error);
+            renderBackupSummary(null);
+        } else {
+            renderBackupSummary(data);
+        }
+    } catch (e) {
+        console.error('Error loading backup summary:', e);
         renderBackupSummary(null);
     }
 }
 
-/** Định dạng số bytes thành chuỗi dễ đọc (KB/MB/GB) -- giống cách hiển thị "size" trong log gốc. */
 function formatBytesBackup(bytes) {
-    if (bytes === undefined || bytes === null || isNaN(bytes)) return '0 B';
-    const num = Number(bytes);
-    if (num >= 1024 ** 3) return `${(num / 1024 ** 3).toFixed(2)} GB`;
-    if (num >= 1024 ** 2) return `${(num / 1024 ** 2).toFixed(2)} MB`;
-    if (num >= 1024) return `${(num / 1024).toFixed(2)} KB`;
-    return `${num} B`;
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const num = bytes / Math.pow(k, i);
+    return `${num.toFixed(1)} ${sizes[i]}`;
 }
 
 /** data=null -- chưa có scope/lỗi tải, đưa 4 thẻ về trạng thái rỗng (0). */
