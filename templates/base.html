@@ -61,7 +61,7 @@
                 </li>
 
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'monitor_metric' or request.resolver_match.url_name == 'monitor_config_list' %}active fw-bold{% endif %}"
+                    <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'monitor_metric' or request.resolver_match.url_name == 'monitor_config_list' or request.resolver_match.url_name == 'monitor_backup_list' %}active fw-bold{% endif %}"
                        href="#" id="navMonitoring" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="bi bi-graph-up-arrow me-1"></i>Giám sát
                     </a>
@@ -77,7 +77,13 @@
                         <li>
                             <a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_mailbox_list' %}active{% endif %}"
                                href="{% url 'monitor_mailbox_list' %}"><i class="bi bi-envelope me-2"></i>Thư gửi
-                                nhận</a></li>
+                                nhận</a>
+                        </li>
+
+                    <li>
+                            <a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_backup_list' %}active{% endif %}"
+                               href="{% url 'monitor_backup_list' %}"><i class="bi bi-floppy2-fill me-2"></i></i>Sao lưu</a>
+                        </li>
                         {% if request.user.is_superuser or request.user.role == 'tenant_admin' %}
                             <li>
                                 <a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_config_list' %}active{% endif %}"

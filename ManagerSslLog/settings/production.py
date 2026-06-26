@@ -111,8 +111,8 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
 CELERY_BEAT_SCHEDULE = {
-    'broadcast-monitor-metrics-every-3-seconds': {
+    'broadcast-monitor-metrics-every-15-seconds': {
         'task': 'apps.monitor.tasks.metric.broadcast_monitor_metrics',
-        'schedule': 5.0,
+        'schedule': 15.0,
     },
 }

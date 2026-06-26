@@ -146,6 +146,28 @@
         return `${num} bps`;
     }
 
+    /**
+     * Convert chuỗi timestamp UTC sang giờ Việt Nam (GMT+7) -- ÉP CỨNG
+     * timeZone 'Asia/Ho_Chi_Minh', đồng bộ cách làm với monitor_audit.js/
+     * monitor_mailbox.js/monitor_backup.js/monitor_metric.js (xem giải
+     * thích chi tiết trong formatVNTimeAudit() của monitor_audit.js).
+     */
+    function formatVNTimeHostDetail(utcTimestamp) {
+        if (!utcTimestamp) return '-';
+        const date = new Date(utcTimestamp);
+        if (isNaN(date.getTime())) return '-';
+
+        const formatter = new Intl.DateTimeFormat('vi-VN', {
+            timeZone: 'Asia/Ho_Chi_Minh',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false,
+        });
+        const parts = formatter.formatToParts(date);
+        const get = (type) => parts.find(p => p.type === type)?.value || '';
+        return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+    }
+
     function hostDetailRowHtml(item) {
         let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
         let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
@@ -154,7 +176,7 @@
 
         let rxRate = formatBitrate(item.net_rx_bps);
         let txRate = formatBitrate(item.net_tx_bps);
-        let t = item.timestamp ? item.timestamp.replace('T', ' ').substring(0, 19) : '-';
+        let t = formatVNTimeHostDetail(item.timestamp);
 
         return `
             <tr>

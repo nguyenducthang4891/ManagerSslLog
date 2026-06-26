@@ -1,5 +1,5 @@
 from django.urls import path
-from apps.monitor.views import views_metric, config, views_audit, views_mailbox
+from apps.monitor.views import views_metric, config, views_audit, views_mailbox, views_backup
 
 urlpatterns = [
     # Template Views (Giao diện hiển thị)
@@ -53,4 +53,19 @@ urlpatterns += [
     # tenant_id trong path giống pattern audit/host_logs, validate quyền tương tự.
     path('api/tenant/<int:tenant_id>/mailbox/<str:doc_id>/',
          views_mailbox.api_mailbox_log_detail, name='api_mailbox_log_detail'),
+]
+
+
+urlpatterns += [
+    path('backup/', views_backup.backup_list, name='monitor_backup_list'),
+    path('api/backup/', views_backup.api_query_backup, name='api_query_backup'),
+    # Thống kê tổng hợp (số tài khoản đã backup, tổng dung lượng...) cho
+    # khoảng thời gian đang chọn -- KHÁC api/summary/ của metric (đó là
+    # alert summary theo severity, route riêng để không đụng nhau).
+    path('api/backup/summary/', views_backup.api_backup_summary, name='api_backup_summary'),
+    # Lấy 1 document backup đầy đủ theo _id -- dùng cho modal JSON chi tiết.
+    # tenant_id trong path giống pattern mailbox/audit/host_logs, validate
+    # quyền tương tự (xem views_backup.api_backup_log_detail).
+    path('api/tenant/<int:tenant_id>/backup/<str:doc_id>/',
+         views_backup.api_backup_log_detail, name='api_backup_log_detail'),
 ]

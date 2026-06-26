@@ -227,12 +227,34 @@ function statusBadgeMailbox(status) {
     return '<span class="badge bg-secondary">-</span>';
 }
 
+/**
+ * Convert chuỗi @timestamp UTC sang giờ Việt Nam (GMT+7) -- xem giải
+ * thích chi tiết trong formatVNTimeAudit() của monitor_audit.js (cùng
+ * cách làm, ÉP CỨNG timeZone 'Asia/Ho_Chi_Minh' không phụ thuộc timezone
+ * máy người dùng).
+ */
+function formatVNTimeMailbox(utcTimestamp) {
+    if (!utcTimestamp) return '-';
+    const date = new Date(utcTimestamp);
+    if (isNaN(date.getTime())) return '-';
+
+    const formatter = new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
 function mailboxRowHtml(item) {
     const from = item.from || '-';
     const to = item.to || '-';
     const size = (item.size !== undefined && item.size !== null) ? `${item.size} B` : '-';
     const delay = (item.delay !== undefined && item.delay !== null) ? `${item.delay}s` : '-';
-    const t = item['@timestamp'] ? String(item['@timestamp']).replace('T', ' ').substring(0, 19) : '-';
+    const t = formatVNTimeMailbox(item['@timestamp']);
 
     return `
         <tr class="small" style="cursor:pointer" onclick="openMailboxOriginLog('${escapeAttrMailbox(item._id)}')">
@@ -309,7 +331,7 @@ async function openMailboxOriginLog(docId) {
                 // status, mail_direction...), nên xem JSON đầy đủ hữu ích
                 // hơn cho việc tra cứu/debug.
                 contentEl.textContent = JSON.stringify(data, null, 2);
-                const t = data['@timestamp'] ? String(data['@timestamp']).replace('T', ' ').substring(0, 19) : '-';
+                const t = formatVNTimeMailbox(data['@timestamp']);
                 metaEl.innerHTML = `<strong>Queue ID:</strong> ${escapeHtmlTextMailbox(data.queue_id || '-')}
                     &nbsp;|&nbsp; <strong>Thời gian:</strong> ${escapeHtmlTextMailbox(t)}
                     &nbsp;|&nbsp; <strong>Document ID:</strong> <span class="font-monospace">${escapeHtmlTextMailbox(docId)}</span>`;

@@ -428,10 +428,28 @@ function formatBitrate(bps) {
 }
 
 function escapeHtmlText(str) { return str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
+/**
+ * Convert chuỗi timestamp UTC sang giờ Việt Nam (GMT+7) -- ÉP CỨNG
+ * timeZone 'Asia/Ho_Chi_Minh', KHÔNG còn dùng toLocaleString('vi-VN')
+ * như trước (cách cũ tự convert theo timezone CẤU HÌNH TRÊN MÁY CLIENT,
+ * nếu máy người dùng đặt sai timezone hệ thống thì hiển thị vẫn sai dù
+ * locale đúng 'vi-VN'). Đồng bộ cách làm với monitor_audit.js/
+ * monitor_mailbox.js/monitor_backup.js.
+ */
 function formatTimestamp(isoStr) {
     if (!isoStr) return '-';
-    const d = new Date(isoStr);
-    return isNaN(d.getTime()) ? isoStr : d.toLocaleString('vi-VN');
+    const date = new Date(isoStr);
+    if (isNaN(date.getTime())) return isoStr;
+
+    const formatter = new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}:${get('second')}`;
 }
 
 window.switchView = function(viewType) {
