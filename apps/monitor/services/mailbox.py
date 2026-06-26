@@ -74,6 +74,7 @@ class MailboxService:
     @staticmethod
     def query(user, tenant: Tenant | None = None,
               hours: int | None = None, days: int | None = None,
+              date_from: str | None = None, date_to: str | None = None,
               mail_direction: str | None = None,
               status: str | None = None,
               search_email: str | None = None,
@@ -84,6 +85,11 @@ class MailboxService:
         thư đi hay đến, chỉ cần biết "có liên quan tới địa chỉ X" -- dùng
         "should" để khớp 1 trong 2 field, giống cách audit.py xử lý
         admin_email/auth_email).
+
+        date_from / date_to: filter "từ ngày - đến ngày" (chuỗi YYYY-MM-DD
+        từ date picker trên UI) -- ƯU TIÊN hơn hours/days nếu có truyền
+        vào (xem resolve_time_range trong base.py), giống cách backup.py
+        đang dùng.
 
         page / page_size: phân trang THẬT qua "from"/"size" của ES (xem
         run_search_paginated trong base.py) -- KHÁC với cách audit.py/
@@ -97,7 +103,7 @@ class MailboxService:
         cluster = ELKConnectionService.get_config_for_tenant(effective_tenant)
         client = ELKConnectionService.get_client(cluster)
 
-        since, now = resolve_time_range(hours, days)
+        since, now = resolve_time_range(hours, days, date_from, date_to)
         filter_ = base_filter(effective_tenant, user.is_superuser, since, now)
         _fix_tenant_filter(filter_, effective_tenant)
 

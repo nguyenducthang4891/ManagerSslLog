@@ -130,16 +130,22 @@ function renderSelectTenantPlaceholder() {
 }
 
 function buildAuditQueryParams() {
-    const rangeTypeEl = document.getElementById('auditRangeType');
-    const rangeValueEl = document.getElementById('auditRangeValue');
+    const dateFromEl = document.getElementById('auditDateFrom');
+    const dateToEl = document.getElementById('auditDateTo');
     const categoryEl = document.getElementById('auditActionCategory');
     const keywordEl = document.getElementById('auditKeyword');
 
-    const rangeType = rangeTypeEl ? rangeTypeEl.value : 'hours';
-    let rangeValue = rangeValueEl ? rangeValueEl.value.trim() : '24';
-    if (!rangeValue || isNaN(rangeValue)) rangeValue = '24';
+    let params = '';
+    const dateFrom = dateFromEl ? dateFromEl.value : '';
+    const dateTo = dateToEl ? dateToEl.value : '';
 
-    let params = `${rangeType}=${rangeValue}`;
+    if (dateFrom) params += `date_from=${encodeURIComponent(dateFrom)}`;
+    if (dateTo) params += `${params ? '&' : ''}date_to=${encodeURIComponent(dateTo)}`;
+
+    // Không chọn ngày nào cả -> giữ hành vi mặc định cũ: 24h gần nhất
+    // (base.py: resolve_time_range trả về 24h nếu hours/days/date đều rỗng).
+    if (!dateFrom && !dateTo) params += `${params ? '&' : ''}hours=24`;
+
     if (categoryEl && categoryEl.value) params += `&action_category=${encodeURIComponent(categoryEl.value)}`;
     if (keywordEl && keywordEl.value.trim()) params += `&keyword=${encodeURIComponent(keywordEl.value.trim())}`;
     if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += `&tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;

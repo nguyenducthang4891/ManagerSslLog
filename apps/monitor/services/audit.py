@@ -36,6 +36,7 @@ class AuditService:
     @staticmethod
     def query(user, tenant: Tenant | None = None,
               hours: int | None = None, days: int | None = None,
+              date_from: str | None = None, date_to: str | None = None,
               action_category: str | None = None,
               keyword: str | None = None,
               page: int = 1,
@@ -47,6 +48,11 @@ class AuditService:
         admin sửa tài khoản người khác thì admin_email (người thực hiện)
         khác target_email (người bị tác động) -- người dùng quan tâm "AI
         đã làm" nên ưu tiên admin_email/auth_email, không phải target_email.
+
+        date_from / date_to: filter "từ ngày - đến ngày" (chuỗi YYYY-MM-DD
+        từ date picker trên UI) -- ƯU TIÊN hơn hours/days nếu có truyền
+        vào (xem resolve_time_range trong base.py), giống cách mailbox.py
+        đang dùng.
 
         page / page_size: phân trang THẬT qua "from"/"size" của ES (xem
         run_search_paginated trong base.py) -- dùng cho cơ chế "tải thêm
@@ -61,7 +67,7 @@ class AuditService:
         cluster = ELKConnectionService.get_config_for_tenant(effective_tenant)
         client = ELKConnectionService.get_client(cluster)
 
-        since, now = resolve_time_range(hours, days)
+        since, now = resolve_time_range(hours, days, date_from, date_to)
 
         # Lấy bộ lọc cơ bản (bao gồm thời gian và tenant)
         filter_ = base_filter(effective_tenant, user.is_superuser, since, now)

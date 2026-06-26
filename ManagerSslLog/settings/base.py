@@ -97,3 +97,38 @@ MEDIA_ROOT = BASE_DIR / 'storage' / 'media'
 
 # BẮT BUỘC: Trỏ cấu hình User sang Login bằng Email của app tenants
 AUTH_USER_MODEL = 'tenants.TenantUser'
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        # 1. Kiểm tra độ dài tối thiểu (Ít nhất 8 ký tự)
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        }
+    },
+    {
+        # 2. Không được quá giống với thông tin cá nhân (username, email, tên...)
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        # 3. Không được là mật khẩu quá phổ biến (123456, password,...)
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        # 4. Không được toàn là chữ số
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+    # 5. TÙY BIẾN: Bắt buộc chứa chữ hoa, chữ thường, số và ký tự đặc biệt bằng Regex
+    {
+        'NAME': 'django.core.password_validation.RegexValidator',
+        'OPTIONS': {
+            # Regex kiểm tra đồng thời: 1 chữ hoa, 1 chữ thường, 1 chữ số, 1 ký tự đặc biệt
+            'regex': r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&._\-#^&+=\[\]{}()]).+$',
+            'message': (
+                "Mật khẩu phải chứa ít nhất 1 chữ cái viết hoa, "
+                "1 chữ cái viết thường, 1 chữ số và 1 ký tự đặc biệt."
+            ),
+            'code': 'password_invaild',
+        }
+    },
+]

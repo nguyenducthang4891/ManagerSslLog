@@ -160,8 +160,15 @@ class MailboxService:
         Reset password -- DUY NHẤT hành động mà Nhân viên (tenant_user) cũng được
         phép thực hiện, miễn là email thuộc domain trong tenant của họ.
         """
-        if not new_password or len(new_password) < 8:
-            raise ValidationError("Mật khẩu mới phải có ít nhất 8 ký tự.")
+        password_regex = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&._-])"
+
+        import re
+        if not re.match(password_regex, new_password):
+            raise ValidationError(
+                "Mật khẩu phải bao gồm cả chữ hoa, chữ thường, chữ số và ký tự đặc biệt (ví dụ: @, $, !, %, *, ?, &, ., _, -)."
+            )
+        # if not new_password or len(new_password) < 8:
+        #     raise ValidationError("Mật khẩu mới phải có ít nhất 8 ký tự.")
 
         domain = MailboxPermissionService.get_domain_or_403(user, domain_id)
         MailboxService._ensure_email_in_domain(email, domain)

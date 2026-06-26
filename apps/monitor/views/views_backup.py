@@ -59,6 +59,8 @@ def api_query_backup(request):
 
     hours = _parse_int(request.GET.get('hours'))
     days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
     backup_mode = request.GET.get('backup_mode') or None
     status = request.GET.get('status') or None
     search_account = request.GET.get('search_account') or None
@@ -71,6 +73,8 @@ def api_query_backup(request):
             tenant=tenant,
             hours=hours,
             days=days,
+            date_from=date_from,
+            date_to=date_to,
             backup_mode=backup_mode,
             status=status,
             search_account=search_account,
@@ -99,8 +103,14 @@ def api_backup_summary(request):
             "unique_accounts_backed_up": 0, "total_size_bytes": 0, "elk_cluster": None,
         })
 
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
+    # Mặc định thống kê "hôm nay" (1 ngày gần nhất) CHỈ khi không có
+    # date_from/date_to -- nếu người dùng đã chọn khoảng ngày cụ thể trên
+    # UI, ưu tiên tuyệt đối khoảng đó, không áp default days=1 đè lên.
+    days_default = None if (date_from or date_to) else 1
     hours = _parse_int(request.GET.get('hours'))
-    days = _parse_int(request.GET.get('days'), default=1)  # mặc định thống kê "hôm nay" (1 ngày gần nhất)
+    days = _parse_int(request.GET.get('days'), default=days_default)
     backup_mode = request.GET.get('backup_mode') or None
 
     try:
@@ -109,6 +119,8 @@ def api_backup_summary(request):
             tenant=tenant,
             hours=hours,
             days=days,
+            date_from=date_from,
+            date_to=date_to,
             backup_mode=backup_mode,
         )
         return JsonResponse(data)

@@ -17,7 +17,11 @@ document.addEventListener('DOMContentLoaded', function () {
     attachEditModalHandlers();
     attachResetPasswordModalHandlers();
     restoreSearchStateFromUrl();
+
+
 });
+
+
 
 // ============================================================================
 // 1. FORM TÌM KIẾM (có Infinite Scroll)
@@ -543,6 +547,24 @@ function attachResetPasswordModalHandlers() {
     if (btnConfirm) {
         btnConfirm.addEventListener('click', async (e) => {
             await resetPassword(e);
+        });
+    }
+    const toggleBtn = document.getElementById('togglePassword');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            const passwordInput = document.getElementById('resetNewPassword');
+            const toggleIcon = document.getElementById('toggleIcon');
+            if (!passwordInput || !toggleIcon) return;
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.classList.remove('bi-eye-slash');
+                toggleIcon.classList.add('bi-eye');
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.classList.remove('bi-eye');
+                toggleIcon.classList.add('bi-eye-slash');
+            }
         });
     }
 }

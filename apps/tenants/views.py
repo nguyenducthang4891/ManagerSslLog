@@ -54,6 +54,58 @@ def logout_action(request):
 
 
 # ============================================================================
+# API: CHANGE OWN PASSWORD (người dùng đã đăng nhập tự đổi mật khẩu)
+# ============================================================================
+
+@login_required(login_url='login')
+def api_change_password(request):
+    """
+    Cho phép người dùng đã đăng nhập tự đổi mật khẩu của chính mình.
+
+    POST parameters:
+    - old_password: mật khẩu hiện tại (required)
+    - new_password: mật khẩu mới (required)
+    - confirm_password: nhập lại mật khẩu mới (required, phải khớp new_password)
+
+    Response:
+    - Success: {'message': '...'}
+    - Error: {'error': '...'}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    old_password = request.POST.get('old_password', '').strip()
+    new_password = request.POST.get('new_password', '').strip()
+    confirm_password = request.POST.get('confirm_password', '').strip()
+
+    if not old_password or not new_password or not confirm_password:
+        return JsonResponse({
+            'error': 'Vui lòng nhập đầy đủ mật khẩu hiện tại, mật khẩu mới và xác nhận mật khẩu mới.'
+        }, status=400)
+
+    if new_password != confirm_password:
+        return JsonResponse({
+            'error': 'Mật khẩu mới và xác nhận mật khẩu mới không khớp.'
+        }, status=400)
+
+    # Validate độ mạnh mật khẩu mới (dùng chung validator của Django, giống
+    # cách api_create_staff đang validate password cho user mới).
+    try:
+        django_validate_password(new_password, user=request.user)
+    except Exception as e:
+        return JsonResponse({
+            'error': f'Mật khẩu mới không đủ mạnh: {str(e)}'
+        }, status=400)
+
+    try:
+        AuthService.change_password(request.user, old_password, new_password)
+        logger.info(f"User {request.user.email} đã tự đổi mật khẩu thành công.")
+        return JsonResponse({'message': 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại nếu được yêu cầu.'})
+    except ValidationError as e:
+        return JsonResponse({'error': str(e.message) if hasattr(e, 'message') else str(e)}, status=400)
+
+
+# ============================================================================
 # DASHBOARD
 # ============================================================================
 
@@ -488,3 +540,57 @@ def api_assign_tenant_admin(request):
         return JsonResponse({
             'error': 'Thông tin cấu hình không hợp lệ.'
         }, status=404)
+
+
+@login_required(login_url='login')
+def api_reset_user_password(request, user_id):
+    """
+    Reset mật khẩu cho một user cụ thể
+
+    BẢO MẬT: IDOR check nằm trong Service layer
+    - Tenant Admin: chỉ reset được user trong cùng tenant
+    - Superuser: reset được mật khẩu của bất kỳ user nào
+
+    POST parameters:
+    - new_password: mật khẩu mới (required)
+    - confirm_password: xác nhận lại mật khẩu mới (required)
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    # Kiểm tra quyền cơ bản ở tầng View để chặn sớm request không hợp lệ
+    if not (request.user.is_superuser or request.user.role == TenantUser.ROLE_TENANT_ADMIN):
+        return JsonResponse({'error': 'Từ chối truy cập. Bạn không có quyền thực hiện hành động này.'}, status=403)
+
+    new_password = request.POST.get('new_password', '').strip()
+    confirm_password = request.POST.get('confirm_password', '').strip()
+
+    if not new_password or not confirm_password:
+        return JsonResponse({
+            'error': 'Vui lòng điền đầy đủ mật khẩu mới và xác nhận mật khẩu.'
+        }, status=400)
+
+    if new_password != confirm_password:
+        return JsonResponse({
+            'error': 'Mật khẩu mới và xác nhận mật khẩu không trùng khớp.'
+        }, status=400)
+
+    try:
+        # Gọi service xử lý logic bảo mật + lưu database
+        target_user = TenantUserService.reset_password(request.user, user_id, new_password)
+
+        logger.info(f"User {request.user.email} đã reset mật khẩu thành công cho tài khoản {target_user.email}.")
+        return JsonResponse({
+            'message': f'✓ Đã đặt lại mật khẩu thành công cho tài khoản {target_user.email}.'
+        })
+
+    except ValidationError as e:
+        logger.warning(f"Validation error when resetting password for user {user_id}: {str(e.message)}")
+        return JsonResponse({
+            'error': str(e.message)
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Unexpected error when resetting password for user {user_id}: {str(e)}")
+        return JsonResponse({
+            'error': 'Lỗi hệ thống không xác định khi đặt lại mật khẩu.'
+        }, status=500)

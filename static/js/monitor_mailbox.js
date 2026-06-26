@@ -40,6 +40,14 @@ function currentTenantIdForMailboxDetail() {
 document.addEventListener('DOMContentLoaded', () => {
     setupMailboxScrollObserver();
 
+    // ⭐ Set default dates (hôm nay) -- giống pattern của trang Backup.
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const dateFromEl = document.getElementById('mailboxDateFrom');
+    const dateToEl = document.getElementById('mailboxDateTo');
+    if (dateFromEl) dateFromEl.value = todayStr;
+    if (dateToEl) dateToEl.value = todayStr;
+
     if (hasActiveScopeMailbox()) {
         resetAndLoadMailbox();
     } else {
@@ -133,22 +141,23 @@ function renderSelectTenantPlaceholderMailbox() {
 }
 
 function buildMailboxQueryParams() {
-    const rangeTypeEl = document.getElementById('mailboxRangeType');
-    const rangeValueEl = document.getElementById('mailboxRangeValue');
+    const dateFromEl = document.getElementById('mailboxDateFrom');
+    const dateToEl = document.getElementById('mailboxDateTo');
     const directionEl = document.getElementById('mailboxDirection');
     const statusEl = document.getElementById('mailboxStatus');
     const searchEmailEl = document.getElementById('mailboxSearchEmail');
 
-    const rangeType = rangeTypeEl ? rangeTypeEl.value : 'hours';
-    let rangeValue = rangeValueEl ? rangeValueEl.value.trim() : '24';
-    if (!rangeValue || isNaN(rangeValue)) rangeValue = '24';
+    const dateFrom = dateFromEl ? dateFromEl.value : '';
+    const dateTo = dateToEl ? dateToEl.value : '';
 
-    let params = `${rangeType}=${rangeValue}`;
-    if (directionEl && directionEl.value) params += `&mail_direction=${encodeURIComponent(directionEl.value)}`;
-    if (statusEl && statusEl.value) params += `&status=${encodeURIComponent(statusEl.value)}`;
-    if (searchEmailEl && searchEmailEl.value.trim()) params += `&search_email=${encodeURIComponent(searchEmailEl.value.trim())}`;
-    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += `&tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
-    params += `&page=${mailboxCurrentPage}&page_size=${MAILBOX_PAGE_SIZE}`;
+    let params = '';
+    if (dateFrom) params += `date_from=${encodeURIComponent(dateFrom)}`;
+    if (dateTo) params += (params ? '&' : '') + `date_to=${encodeURIComponent(dateTo)}`;
+    if (directionEl && directionEl.value) params += (params ? '&' : '') + `mail_direction=${encodeURIComponent(directionEl.value)}`;
+    if (statusEl && statusEl.value) params += (params ? '&' : '') + `status=${encodeURIComponent(statusEl.value)}`;
+    if (searchEmailEl && searchEmailEl.value.trim()) params += (params ? '&' : '') + `search_email=${encodeURIComponent(searchEmailEl.value.trim())}`;
+    if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) params += (params ? '&' : '') + `tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}`;
+    params += (params ? '&' : '') + `page=${mailboxCurrentPage}&page_size=${MAILBOX_PAGE_SIZE}`;
     return params;
 }
 

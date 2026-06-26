@@ -56,6 +56,8 @@ def api_query_audit(request):
 
     hours = _parse_int(request.GET.get('hours'))
     days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
     action_category = request.GET.get('action_category') or None
     keyword = request.GET.get('keyword') or None
     page = _parse_int(request.GET.get('page'), default=1)
@@ -67,6 +69,8 @@ def api_query_audit(request):
             tenant=tenant,
             hours=hours,
             days=days,
+            date_from=date_from,
+            date_to=date_to,
             action_category=action_category,
             keyword=keyword,
             page=page,

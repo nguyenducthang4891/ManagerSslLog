@@ -18,7 +18,7 @@ và viết thêm 1 file mới theo khuôn của metric.py/audit.py.
 """
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 from elasticsearch import Elasticsearch
 from apps.tenants.models import Tenant
 from apps.monitor.models import ELKClusterConfig
@@ -62,9 +62,44 @@ class ELKConnectionService:
         return Elasticsearch(cluster.get_hosts_list(), **kwargs)
 
 
-def resolve_time_range(hours: int | None, days: int | None) -> tuple:
-    """Trả về (since, now). Mặc định 24h gần nhất nếu không truyền gì."""
+def resolve_time_range(hours: int | None, days: int | None,
+                        date_from: str | None = None,
+                        date_to: str | None = None) -> tuple:
+    """
+    Trả về (since, now). Mặc định 24h gần nhất nếu không truyền gì.
+
+    ⭐ THÊM date_from/date_to (chuỗi "YYYY-MM-DD", từ <input type="date">) --
+    ƯU TIÊN cao nhất nếu có truyền vào (filter "từ ngày - đến ngày" trên
+    UI, giống cách trang Backup đang dùng). Khi có ít nhất 1 trong 2:
+        - date_from: since = đầu ngày đó (00:00:00) theo timezone hiện
+          hành của Django (settings.TIME_ZONE).
+        - date_to: "now" trả về = CUỐI ngày đó (23:59:59.999999), để bao
+          trùm toàn bộ ngày được chọn, không chỉ tới thời điểm hiện tại.
+        - Nếu chỉ truyền 1 trong 2, vế còn lại fallback hợp lý: thiếu
+          date_from -> không chặn quá khứ (since rất xa, coi như mọi log
+          cũ đều thuộc về); thiếu date_to -> dùng thời điểm hiện tại.
+
+    KHÔNG truyền date_from/date_to (giữ None, None) -> hành vi CŨ giữ
+    nguyên 100% (hours/days như trước), để không phá vỡ metric.py/audit.py
+    đang gọi resolve_time_range(hours, days) theo signature cũ.
+    """
     now = timezone.now()
+
+    if date_from or date_to:
+        tz = timezone.get_current_timezone()
+        since = timezone.make_aware(datetime(1971, 1, 1), tz)
+        until = now
+
+        if date_from:
+            d = datetime.strptime(date_from, "%Y-%m-%d")
+            since = timezone.make_aware(datetime.combine(d.date(), datetime.min.time()), tz)
+
+        if date_to:
+            d = datetime.strptime(date_to, "%Y-%m-%d")
+            until = timezone.make_aware(datetime.combine(d.date(), datetime.max.time()), tz)
+
+        return since, until
+
     if hours:
         since = now - timedelta(hours=hours)
     elif days:

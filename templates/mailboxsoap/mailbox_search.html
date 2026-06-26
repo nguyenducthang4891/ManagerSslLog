@@ -4,178 +4,197 @@
 {% block title %}Tìm kiếm Email{% endblock %}
 
 {% block extra_css %}
-<style>
-    #mailboxResultsTable td { vertical-align: middle; }
-    .status-badge-active { background-color: #198754; }
-    .status-badge-locked { background-color: #fd7e14; }
-    .status-badge-closed { background-color: #6c757d; }
-</style>
+    <style>
+        #mailboxResultsTable td {
+            vertical-align: middle;
+        }
+
+        .status-badge-active {
+            background-color: #198754;
+        }
+
+        .status-badge-locked {
+            background-color: #fd7e14;
+        }
+
+        .status-badge-closed {
+            background-color: #6c757d;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
-<div class="card shadow-sm">
-    <div class="card-header bg-white">
-        <h5 class="mb-0"><i class="bi bi-envelope-paper me-2"></i>Tìm kiếm & Quản lý Email</h5>
-    </div>
-    <div class="card-body">
-
-        <form id="mailboxSearchForm" class="row g-2 align-items-end mb-3">
-            <div class="col-md-4">
-                <label class="form-label small text-muted">Tên miền</label>
-                <select class="form-select" id="domainSelect" required>
-                    <option value="" disabled selected>-- Chọn tên miền --</option>
-                    {% for domain in domains %}
-                    <option value="{{ domain.id }}">
-                        {{ domain.name }}{% if domain.tenant %} ({{ domain.tenant.name }}){% endif %}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label class="form-label small text-muted">Tìm theo email</label>
-                <input type="text" class="form-control" id="emailQueryInput"
-                       placeholder="Nhập một phần hoặc đầy đủ địa chỉ email cần tìm..." required>
-            </div>
-            <div class="col-md-2">
-                <button type="submit" class="btn btn-primary w-100">
-                    <i class="bi bi-search me-1"></i>Tìm kiếm
-                </button>
-            </div>
-        </form>
-
-        <div id="mailboxLoading" class="text-center text-muted py-4 d-none">
-            <div class="spinner-border spinner-border-sm me-2"></div>Đang truy vấn Zimbra Server...
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="bi bi-envelope-paper me-2"></i>Tìm kiếm & Quản lý Email</h5>
         </div>
+        <div class="card-body">
 
-        <div id="mailboxEmptyState" class="text-center text-muted py-5 d-none">
-            <i class="bi bi-inbox fs-1 d-block mb-2"></i>Không tìm thấy email phù hợp.
-        </div>
-
-        <div class="table-responsive">
-            <table class="table table-hover align-middle d-none" id="mailboxResultsTable">
-                <thead class="table-light">
-                <tr>
-                    <th>Email</th>
-                    <th>Họ (sn)</th>
-                    <th>Tên (givenName)</th>
-                    <th>Tên hiển thị</th>
-                    <th>Chức danh</th>
-                    <th>Điện thoại</th>
-                    <th>Trạng thái</th>
-                    <th class="text-end">Hành động</th>
-                </tr>
-                </thead>
-                <tbody id="mailboxResultsBody"></tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Sửa hồ sơ / Đổi tên / Đổi trạng thái (Superuser & Tenant Admin) -->
-<div class="modal fade" id="editAccountModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Chỉnh sửa tài khoản</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="editDomainId">
-                <input type="hidden" id="editOriginalEmail">
-
-                <div class="mb-2">
-                    <label class="form-label small text-muted">Email</label>
-                    <input type="text" class="form-control" id="editEmailDisplay" disabled>
-                </div>
-                <div class="row g-2 mb-2">
-                    <div class="col-6">
-                        <label class="form-label small text-muted">Tên (givenName)</label>
-                        <input type="text" class="form-control" id="editGivenName">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label small text-muted">Họ (sn)</label>
-                        <input type="text" class="form-control" id="editSn">
-                    </div>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label small text-muted">Tên hiển thị (displayName)</label>
-                    <input type="text" class="form-control" id="editDisplayName">
-                </div>
-                <div class="row g-2 mb-2">
-                    <div class="col-6">
-                        <label class="form-label small text-muted">Chức danh (title)</label>
-                        <input type="text" class="form-control" id="editTitle">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label small text-muted">Điện thoại (mobile)</label>
-                        <input type="text" class="form-control" id="editMobile">
-                    </div>
-                </div>
-
-                <hr>
-
-                <div class="mb-2">
-                    <label class="form-label small text-muted">Đổi địa chỉ email (Rename)</label>
-                    <input type="text" class="form-control" id="editNewEmail" placeholder="Để trống nếu không đổi">
-                </div>
-
-                <div class="mb-2">
-                    <label class="form-label small text-muted">Trạng thái tài khoản</label>
-                    <select class="form-select" id="editStatus">
-                        <option value="active">Hoạt động (active)</option>
-                        <option value="locked">Khóa (locked)</option>
-                        <option value="closed">Đóng (closed)</option>
+            <form id="mailboxSearchForm" class="row g-2 align-items-end mb-3">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted">Tên miền</label>
+                    <select class="form-select" id="domainSelect" required>
+                        <option value="" disabled selected>-- Chọn tên miền --</option>
+                        {% for domain in domains %}
+                            <option value="{{ domain.id }}">
+                                {{ domain.name }}{% if domain.tenant %} ({{ domain.tenant.name }}){% endif %}
+                            </option>
+                        {% endfor %}
                     </select>
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Tìm theo email</label>
+                    <input type="text" class="form-control" id="emailQueryInput"
+                           placeholder="Nhập một phần hoặc đầy đủ địa chỉ email cần tìm..." required>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search me-1"></i>Tìm kiếm
+                    </button>
+                </div>
+            </form>
+
+            <div id="mailboxLoading" class="text-center text-muted py-4 d-none">
+                <div class="spinner-border spinner-border-sm me-2"></div>
+                Đang truy vấn Zimbra Server...
             </div>
-            <div class="modal-footer justify-content-between">
-                <button type="button" class="btn btn-outline-danger" id="btnDeleteAccountInModal">
-                    <i class="bi bi-trash me-1"></i>Xóa vĩnh viễn
-                </button>
-                <div>
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
-                    <button type="button" class="btn btn-primary" id="btnSaveAccountChanges">
-                        <i class="bi bi-check2 me-1"></i>Lưu thay đổi
+
+            <div id="mailboxEmptyState" class="text-center text-muted py-5 d-none">
+                <i class="bi bi-inbox fs-1 d-block mb-2"></i>Không tìm thấy email phù hợp.
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover align-middle d-none" id="mailboxResultsTable">
+                    <thead class="table-light">
+                    <tr>
+                        <th>Email</th>
+                        <th>Họ (sn)</th>
+                        <th>Tên (givenName)</th>
+                        <th>Tên hiển thị</th>
+                        <th>Chức danh</th>
+                        <th>Điện thoại</th>
+                        <th>Trạng thái</th>
+                        <th class="text-end">Hành động</th>
+                    </tr>
+                    </thead>
+                    <tbody id="mailboxResultsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Sửa hồ sơ / Đổi tên / Đổi trạng thái (Superuser & Tenant Admin) -->
+    <div class="modal fade" id="editAccountModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Chỉnh sửa tài khoản</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editDomainId">
+                    <input type="hidden" id="editOriginalEmail">
+
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">Email</label>
+                        <input type="text" class="form-control" id="editEmailDisplay" disabled>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small text-muted">Tên (givenName)</label>
+                            <input type="text" class="form-control" id="editGivenName">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-muted">Họ (sn)</label>
+                            <input type="text" class="form-control" id="editSn">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">Tên hiển thị (displayName)</label>
+                        <input type="text" class="form-control" id="editDisplayName">
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small text-muted">Chức danh (title)</label>
+                            <input type="text" class="form-control" id="editTitle">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small text-muted">Điện thoại (mobile)</label>
+                            <input type="text" class="form-control" id="editMobile">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">Đổi địa chỉ email (Rename)</label>
+                        <input type="text" class="form-control" id="editNewEmail" placeholder="Để trống nếu không đổi">
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">Trạng thái tài khoản</label>
+                        <select class="form-select" id="editStatus">
+                            <option value="active">Hoạt động (active)</option>
+                            <option value="locked">Khóa (locked)</option>
+                            <option value="closed">Đóng (closed)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <button type="button" class="btn btn-outline-danger" id="btnDeleteAccountInModal">
+                        <i class="bi bi-trash me-1"></i>Xóa vĩnh viễn
+                    </button>
+                    <div>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        <button type="button" class="btn btn-primary" id="btnSaveAccountChanges">
+                            <i class="bi bi-check2 me-1"></i>Lưu thay đổi
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Reset Password (mọi vai trò được phép) -->
+    <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-key me-2"></i>Đặt lại mật khẩu</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="resetDomainId">
+                    <input type="hidden" id="resetEmail">
+                    <p class="mb-2">Đặt lại mật khẩu cho: <strong id="resetEmailDisplay"></strong></p>
+                    <label class="form-label small text-muted">Mật khẩu tối thiểu 8 ký tự bao gồm ký tự hoa, thường, số
+                        và ký tự đặc biệt</label>
+
+                    <div class="input-group">
+                        <input type="password" class="form-control" id="resetNewPassword" minlength="8" required>
+                        <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                            <i class="bi bi-eye-slash" id="toggleIcon"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-primary" id="btnConfirmResetPassword">
+                        <i class="bi bi-check2 me-1"></i>Xác nhận
                     </button>
                 </div>
             </div>
         </div>
     </div>
-</div>
-
-<!-- Modal: Reset Password (mọi vai trò được phép) -->
-<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-key me-2"></i>Đặt lại mật khẩu</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="resetDomainId">
-                <input type="hidden" id="resetEmail">
-                <p class="mb-2">Đặt lại mật khẩu cho: <strong id="resetEmailDisplay"></strong></p>
-                <label class="form-label small text-muted">Mật khẩu mới (tối thiểu 8 ký tự)</label>
-                <input type="text" class="form-control" id="resetNewPassword" minlength="8" required>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                <button type="button" class="btn btn-primary" id="btnConfirmResetPassword">
-                    <i class="bi bi-check2 me-1"></i>Xác nhận
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    // Quyền hiện tại của user, set từ server-side render -- KHÔNG dùng để tự
-    // ý quyết định bảo mật (mọi action vẫn được service.py kiểm tra lại phía
-    // server), chỉ dùng để ẩn/hiện nút cho gọn UI.
-    window.MAILBOX_CAN_MANAGE = {{ can_manage|yesno:"true,false" }};
-</script>
-<script src="{% static 'js/mailboxsoap_mailbox.js' %}" defer></script>
+    <script>
+        // Quyền hiện tại của user, set từ server-side render -- KHÔNG dùng để tự
+        // ý quyết định bảo mật (mọi action vẫn được service.py kiểm tra lại phía
+        // server), chỉ dùng để ẩn/hiện nút cho gọn UI.
+        window.MAILBOX_CAN_MANAGE = {{ can_manage|yesno:"true,false" }};
+    </script>
+    <script src="{% static 'js/mailboxsoap_mailbox.js' %}" defer></script>
 {% endblock %}

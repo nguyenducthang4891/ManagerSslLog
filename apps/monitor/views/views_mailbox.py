@@ -54,6 +54,8 @@ def api_query_mailbox(request):
 
     hours = _parse_int(request.GET.get('hours'))
     days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
     mail_direction = request.GET.get('mail_direction') or None
     status = request.GET.get('status') or None
     search_email = request.GET.get('search_email') or None
@@ -66,6 +68,8 @@ def api_query_mailbox(request):
             tenant=tenant,
             hours=hours,
             days=days,
+            date_from=date_from,
+            date_to=date_to,
             mail_direction=mail_direction,
             status=status,
             search_email=search_email,

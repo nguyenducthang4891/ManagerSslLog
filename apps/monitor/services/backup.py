@@ -67,6 +67,7 @@ class BackupService:
     @staticmethod
     def query(user, tenant: Tenant | None = None,
               hours: int | None = None, days: int | None = None,
+              date_from: str | None = None, date_to: str | None = None,
               backup_mode: str | None = None,
               status: str | None = None,
               search_account: str | None = None,
@@ -78,6 +79,10 @@ class BackupService:
         hoa-thường do account luôn lowercase từ LDAP, nhưng vẫn chuẩn hóa
         ở đây để chắc chắn.
 
+        date_from / date_to: filter "từ ngày - đến ngày" (chuỗi YYYY-MM-DD
+        từ date picker trên UI) -- ƯU TIÊN hơn hours/days nếu có truyền
+        vào (xem resolve_time_range trong base.py).
+
         page / page_size: phân trang THẬT qua "from"/"size" của ES (xem
         run_search_paginated trong base.py), giống mailbox.py -- dùng cho
         cơ chế "tải thêm khi kéo scroll" trên UI (monitor_backup.js).
@@ -88,7 +93,7 @@ class BackupService:
         cluster = ELKConnectionService.get_config_for_tenant(effective_tenant)
         client = ELKConnectionService.get_client(cluster)
 
-        since, now = resolve_time_range(hours, days)
+        since, now = resolve_time_range(hours, days, date_from, date_to)
         filter_ = base_filter(effective_tenant, user.is_superuser, since, now)
         _fix_tenant_filter(filter_, effective_tenant)
 
@@ -128,6 +133,7 @@ class BackupService:
     @staticmethod
     def get_summary(user, tenant: Tenant | None = None,
                      hours: int | None = None, days: int | None = None,
+                     date_from: str | None = None, date_to: str | None = None,
                      backup_mode: str | None = None) -> dict:
         """
         Thống kê tổng hợp cho khoảng thời gian đã chọn -- ĐÚNG mục đích ban
@@ -154,7 +160,7 @@ class BackupService:
         cluster = ELKConnectionService.get_config_for_tenant(effective_tenant)
         client = ELKConnectionService.get_client(cluster)
 
-        since, now = resolve_time_range(hours, days)
+        since, now = resolve_time_range(hours, days, date_from, date_to)
         filter_ = base_filter(effective_tenant, user.is_superuser, since, now)
         _fix_tenant_filter(filter_, effective_tenant)
 

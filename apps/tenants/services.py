@@ -190,3 +190,33 @@ class TenantUserService:
             return TenantUser.objects.get(id=user_id, tenant=user.tenant)
         except TenantUser.DoesNotExist:
             raise ValidationError("Không tìm thấy người dùng hoặc bạn không có quyền xem.")
+
+    # Bổ sung vào class TenantUserService trong file services.py
+
+    @staticmethod
+    def reset_password(user, target_user_id: int, new_password_raw: str) -> TenantUser:
+        """
+        Bảo mật: Reset mật khẩu cho nhân viên nội bộ hoặc toàn hệ thống (Superuser)
+        """
+        try:
+            if user.is_superuser:
+                target_user = TenantUser.objects.get(id=target_user_id)
+            else:
+                # Tenant Admin chỉ tìm thấy user thuộc cùng tổ chức (Tenant)
+                target_user = TenantUser.objects.get(id=target_user_id, tenant=user.tenant)
+                if user.role != TenantUser.ROLE_TENANT_ADMIN:
+                    raise ValidationError("Bạn không có quyền reset mật khẩu cho thành viên khác.")
+        except TenantUser.DoesNotExist:
+            raise ValidationError("Không tìm thấy tài khoản người dùng hoặc bạn không có quyền quản lý tài khoản này.")
+
+        # Validate độ mạnh của mật khẩu mới theo chuẩn Django cấu hình
+        try:
+            validate_password(new_password_raw, user=target_user)
+        except DjangoValidationError as e:
+            raise ValidationError(f"Mật khẩu mới không đủ mạnh: {str(e)}")
+
+        # Tiến hành đổi mật khẩu
+        target_user.set_password(new_password_raw)
+        target_user.save(update_fields=['password'])
+
+        return target_user

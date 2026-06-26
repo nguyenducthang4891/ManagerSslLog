@@ -39,15 +39,12 @@
     <div class="card-body">
         <form id="mailboxFilterForm" class="row g-2 align-items-end">
             <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted">Loại thời gian</label>
-                <select class="form-select form-select-sm" id="mailboxRangeType">
-                    <option value="hours" selected>Theo giờ</option>
-                    <option value="days">Theo ngày</option>
-                </select>
+                <label class="form-label small fw-bold text-muted">Từ ngày</label>
+                <input type="date" class="form-control form-control-sm" id="mailboxDateFrom">
             </div>
             <div class="col-md-2">
-                <label class="form-label small fw-bold text-muted">Số giờ</label>
-                <input type="number" class="form-control form-control-sm font-monospace" id="mailboxRangeValue" value="24" min="1">
+                <label class="form-label small fw-bold text-muted">Đến ngày</label>
+                <input type="date" class="form-control form-control-sm" id="mailboxDateTo">
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-bold text-muted">Chiều thư</label>

@@ -35,157 +35,173 @@ document.addEventListener('DOMContentLoaded', () => {
     // ========================================================================
     // 2️⃣ TABLE - Change Status (Toggle checkbox)
     // ========================================================================
-    const tableBody = document.getElementById('user-table-body');
-    if (tableBody) {
-        // Lắng nghe thay đổi của Công tắc Kích hoạt (Switch)
-        tableBody.addEventListener('change', async (e) => {
+    const userTableBody = document.getElementById('user-table-body');
+    if (userTableBody) {
+        userTableBody.addEventListener('change', async (e) => {
             const checkbox = e.target.closest('.user-status-checkbox');
             if (!checkbox) return;
 
-            const userId = checkbox.dataset.id;
-            const isChecked = checkbox.checked;
+            const userId = checkbox.getAttribute('data-id');
+            const isActive = checkbox.checked;
 
             const formData = new FormData();
-            formData.append('is_active', isChecked ? 'true' : 'false');
+            formData.append('is_active', isActive);
 
             const url = `/api/users/${userId}/status/`;
-            const result = await fetchJSON(url, { method: 'POST', body: formData });
-
-            if (result.ok) {
-                showToast(
-                    result.data.message || 'Cập nhật trạng thái tài khoản thành công.',
-                    'success'
-                );
-            } else {
-                showToast(
-                    result.data.error || 'Lỗi khi cập nhật trạng thái.',
-                    'danger'
-                );
-                // ✅ Khôi phục trạng thái UI nếu lỗi backend
-                checkbox.checked = !isChecked;
-            }
+            await postAndReload(url, formData, { event: e, successReload: false });
         });
 
-        // Lắng nghe thay đổi của Hộp chọn Vai trò (Select box)
-        tableBody.addEventListener('change', async (e) => {
-            const selectRole = e.target.closest('.user-role-select');
-            if (!selectRole) return;
+        // ========================================================================
+        // 3️⃣ TABLE - Change Role (Dropdown select)
+        // ========================================================================
+        userTableBody.addEventListener('change', async (e) => {
+            const select = e.target.closest('.user-role-select');
+            if (!select) return;
 
-            const userId = selectRole.dataset.id;
-            const previousRole = selectRole.getAttribute('data-prev') || selectRole.value;
-            const newRole = selectRole.value;
+            const userId = select.getAttribute('data-id');
+            const newRole = select.value;
 
             const formData = new FormData();
             formData.append('role', newRole);
 
             const url = `/api/users/${userId}/role/`;
-            const result = await fetchJSON(url, { method: 'POST', body: formData });
-
-            if (result.ok) {
-                showToast(
-                    result.data.message || 'Thay đổi quyền hạn thành công.',
-                    'success'
-                );
-                // ✅ Cập nhật bộ nhớ đệm vai trò
-                selectRole.setAttribute('data-prev', newRole);
-            } else {
-                showToast(
-                    result.data.error || 'Thao tác phân quyền thất bại.',
-                    'danger'
-                );
-                // ✅ Trả giao diện về giá trị cũ
-                selectRole.value = previousRole;
-            }
-        });
-
-        // Tạo bộ nhớ đệm vai trò ban đầu cho tất cả select boxes
-        tableBody.querySelectorAll('.user-role-select').forEach(select => {
-            select.setAttribute('data-prev', select.value);
+            await postAndReload(url, formData, { event: e, successReload: false });
         });
     }
 
     // ========================================================================
-    // 3️⃣ FORM SUBMIT - Create new user
+    // 4️⃣ SUBMIT FORM - Create Staff
     // ========================================================================
     const userForm = document.getElementById('user-form');
     if (userForm) {
         userForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            // ✅ Lấy dữ liệu từ form
             const email = document.getElementById('u_email').value.trim();
-            const password = document.getElementById('u_pwd').value.trim();
+            const password = document.getElementById('u_pwd').value;
             const fullName = document.getElementById('u_name').value.trim();
+            const tenantSelect = document.getElementById('u_tenant_id');
+            const tenantId = tenantSelect ? tenantSelect.value : null;
 
-            // =========================================================
-            // VALIDATION: Check required fields
-            // =========================================================
-            if (!email) {
-                showToast('Email là bắt buộc', 'warning');
-                return;
-            }
-            if (!password) {
-                showToast('Mật khẩu là bắt buộc', 'warning');
-                return;
-            }
-
-            // =========================================================
-            // SUPERUSER LOGIC: Must select tenant
-            // =========================================================
-            let tenantId = null;
+            // Validation nếu là Superuser
             if (window.CURRENT_USER.isSuperuser) {
-                const tenantSelect = document.getElementById('u_tenant_id');
-                if (!tenantSelect) {
-                    showToast('❌ Lỗi: Không tìm thấy trường chọn tổ chức', 'danger');
-                    return;
-                }
-
-                tenantId = tenantSelect.value.trim();
-
-                // ✅ Validation: Superuser MUST choose tenant
                 if (!tenantId) {
-                    // Mark as invalid
                     tenantSelect.classList.add('is-invalid');
                     showToast(
-                        '❌ Bạn phải chọn Tổ chức (Superuser bắt buộc)',
+                        'Cảnh báo dữ liệu',
+                        'Vui lòng chọn Tổ chức quản lý cho tài khoản nhân viên này!',
                         'danger'
                     );
                     return;
                 }
-
-                // ✅ Remove invalid mark if already filled
                 tenantSelect.classList.remove('is-invalid');
             }
 
-            // =========================================================
-            // BUILD FormData
-            // =========================================================
             const formData = new FormData();
             formData.append('email', email);
             formData.append('password', password);
             formData.append('full_name', fullName);
 
-            // ✅ Superuser: append tenant_id
-            // Tenant Admin: không append (backend sẽ auto-assign)
             if (window.CURRENT_USER.isSuperuser && tenantId) {
                 formData.append('tenant_id', tenantId);
             }
 
-            // =========================================================
-            // SUBMIT
-            // =========================================================
             const result = await postAndReload(
                 window.USER_URLS.apiCreateStaff,
                 formData,
                 {
                     event: e,
-                    successReload: true  // Reload page after success
+                    successReload: true
                 }
             );
 
-            // ✅ Close modal if success
             if (result && result.ok && userModal) {
                 userModal.hide();
+            }
+        });
+    }
+
+    // ========================================================================
+    // 5️⃣ MODAL RESET PASSWORD - Đặt lại mật khẩu (Đã sửa lỗi định vị)
+    // ========================================================================
+    const resetModalEl = document.getElementById('resetPasswordModal');
+    const resetModal = resetModalEl ? new bootstrap.Modal(resetModalEl) : null;
+    const resetForm = document.getElementById('resetPasswordForm');
+    const errorAlert = document.getElementById('resetPasswordError');
+
+    // Ủy quyền sự kiện (Event Delegation) lắng nghe nút click Reset trong bảng
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-reset-pwd');
+        if (!btn) return;
+
+        e.preventDefault();
+        const userId = btn.getAttribute('data-user-id');
+        const userEmail = btn.getAttribute('data-user-email');
+
+        if (resetForm) resetForm.reset();
+        if (errorAlert) {
+            errorAlert.classList.add('d-none');
+            errorAlert.textContent = '';
+        }
+
+        const inputId = document.getElementById('reset_user_id');
+        const textEmail = document.getElementById('reset_user_email');
+        if (inputId) inputId.value = userId;
+        if (textEmail) textEmail.textContent = userEmail;
+
+        if (resetModal) resetModal.show();
+    });
+
+    // Submit form Đổi mật khẩu
+    if (resetForm) {
+        resetForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const userId = document.getElementById('reset_user_id').value;
+            const newPassword = document.getElementById('new_password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const btnSubmit = document.getElementById('btnSubmitReset');
+
+            if (newPassword !== confirmPassword) {
+                if (errorAlert) {
+                    errorAlert.textContent = 'Mật khẩu mới và xác nhận mật khẩu không trùng khớp.';
+                    errorAlert.classList.remove('d-none');
+                }
+                return;
+            }
+
+            const formData = new FormData(resetForm);
+
+            if (btnSubmit) {
+                btnSubmit.disabled = true;
+                btnSubmit.textContent = 'Đang xử lý...';
+            }
+            if (errorAlert) errorAlert.classList.add('d-none');
+
+            // Lấy URL từ biến global window đã khai báo ngoài HTML
+            const baseUrl = window.USER_URLS.apiResetUserPassword;
+            const url = baseUrl.replace('0', userId);
+
+            try {
+                const result = await postAndReload(url, formData, {
+                    event: e,
+                    successReload: true
+                });
+
+                if (result && result.ok && resetModal) {
+                    resetModal.hide();
+                }
+            } catch (err) {
+                console.error('Reset password error:', err);
+                if (errorAlert) {
+                    errorAlert.textContent = 'Lỗi hệ thống không thể thực hiện.';
+                    errorAlert.classList.remove('d-none');
+                }
+            } finally {
+                if (btnSubmit) {
+                    btnSubmit.disabled = false;
+                    btnSubmit.textContent = 'Xác nhận cập nhật';
+                }
             }
         });
     }

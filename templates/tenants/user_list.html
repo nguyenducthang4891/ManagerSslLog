@@ -2,192 +2,246 @@
 {% load static %}
 {% block title %}Quản lý Thành viên Tổ chức{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="h4 fw-bold text-dark mb-0">Quản lý Thành viên Tổ chức</h2>
-        <p class="text-muted small mb-0">Danh sách tài khoản nhân viên thuộc không gian quản lý của tổ chức.</p>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="h4 fw-bold text-dark mb-0"><i class="bi bi-person-badge me-2"></i>Quản lý người dùng </h2>
+            <p class="text-muted small mb-0">Danh sách người dùng cuô thuộc không gian quản lý của tổ chức.</p>
+        </div>
+        {% if request.user.is_superuser or request.user.role == 'tenant_admin' %}
+            <button id="btn-open-add-user" class="btn btn-primary btn-sm fw-bold">
+                <i class="bi bi-plus-lg me-1"></i>Tạo thêm nhân viên
+            </button>
+        {% endif %}
     </div>
-    {% if request.user.is_superuser or request.user.role == 'tenant_admin' %}
-    <button id="btn-open-add-user" class="btn btn-primary btn-sm fw-bold">
-        <i class="bi bi-plus-lg me-1"></i>Tạo thêm nhân viên
-    </button>
-    {% endif %}
-</div>
 
-<div class="card shadow-sm border-0">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-            <thead class="table-light small text-muted">
+    <div class="card shadow-sm border-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small text-muted">
                 <tr>
-                    <th class="ps-3">Địa chỉ Email / Tên hiển thị</th>
-                    <th>Tổ chức sở hữu</th>
+                    <th class="ps-3">Email / Tên hiển thị</th>
+                    <th>Tổ chức</th>
                     <th>Vai trò</th>
                     <th>Ngày tham gia</th>
-                    <th class="text-center" style="width: 15%;">Công tắc kích hoạt</th>
-                    <th class="text-center pe-3" style="width: 15%;">Cấp bậc</th>
+                   <th class="text-center" style="width: 15%;">Trạng thái</th>
+    <th class="text-center pe-3" style="width: 30%;">Thao tác</th>
                 </tr>
-            </thead>
-            <tbody id="user-table-body" class="small">
+                </thead>
+                <tbody id="user-table-body" class="small">
                 {% for u in users %}
-                <tr>
-                    <td class="ps-3">
-                        <div class="fw-bold text-dark font-monospace">{{ u.email }}</div>
-                        <div class="text-muted xsmall">{{ u.full_name|default:"-- Chưa cập nhật tên --" }}</div>
-                    </td>
-                    <td>
-                        {% if u.is_superuser %}
-                        <span class="badge bg-dark">Hạ tầng vật lý toàn cục</span>
-                        {% elif u.tenant %}
-                        <span class="badge bg-light border text-secondary font-weight-bold">{{ u.tenant.name }}</span>
-                        {% else %}
-                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Tài khoản Tự do</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if u.is_superuser %}
-                        <span class="badge bg-danger">Root Admin</span>
-                        {% elif u.role == 'tenant_admin' %}
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Tenant Admin</span>
-                        {% else %}
-                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Staff</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-muted xsmall">{{ u.date_joined|date:"H:i - d/m/Y" }}</td>
-                    <td class="text-center">
-                        {% if u.is_superuser or u == request.user %}
-                        <div class="form-check form-switch d-inline-block">
-                            <input class="form-check-input" type="checkbox" checked disabled>
-                        </div>
-                        {% else %}
-                        <div class="form-check form-switch d-inline-block">
-                            <input class="form-check-input user-status-checkbox" type="checkbox" data-id="{{ u.id }}" {% if u.is_active %}checked{% endif %}>
-                        </div>
-                        {% endif %}
-                    </td>
-                    <td class="text-center pe-3">
-                        {% if u.is_superuser or u == request.user %}
-                        <span class="text-muted xsmall">Không thể sửa</span>
-                        {% else %}
-                        <select class="form-select form-select-xs d-inline-block user-role-select w-auto" data-id="{{ u.id }}">
-                            <option value="tenant_user" {% if u.role == 'tenant_user' %}selected{% endif %}>Nhân viên (Staff)</option>
-                            <option value="tenant_admin" {% if u.role == 'tenant_admin' %}selected{% endif %}>Quản trị (Admin)</option>
-                        </select>
-                        {% endif %}
-                    </td>
-                </tr>
+                    <tr>
+                        <td class="ps-3">
+                            <div class="fw-bold text-dark font-monospace">{{ u.email }}</div>
+                            <div class="text-muted xsmall">{{ u.full_name|default:"-- Chưa cập nhật tên --" }}</div>
+                        </td>
+                        <td>
+                            {% if u.is_superuser %}
+                                <span class="badge bg-dark">Hạ tầng vật lý toàn cục</span>
+                            {% elif u.tenant %}
+                                <span class="badge bg-light border text-secondary font-weight-bold">{{ u.tenant.name }}</span>
+                            {% else %}
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Tài khoản Tự do</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.is_superuser %}
+                                <span class="badge bg-danger">Quản trị hệ thống</span>
+                            {% elif u.role == 'tenant_admin' %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Quản trị tổ chức</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Người dùng</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted xsmall">{{ u.date_joined|date:"H:i - d/m/Y" }}</td>
+                        <td class="text-center">
+                            {% if u.is_superuser or u == request.user %}
+                                <div class="form-check form-switch d-inline-block">
+                                    <input class="form-check-input" type="checkbox" checked disabled>
+                                </div>
+                            {% else %}
+                                <div class="form-check form-switch d-inline-block">
+                                    <input class="form-check-input user-status-checkbox" type="checkbox"
+                                           data-id="{{ u.id }}" {% if u.is_active %}checked{% endif %}>
+                                </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center pe-3">
+                            {% if u.is_superuser or u == request.user %}
+                                <span class="text-muted xsmall">Không thể sửa</span>
+                            {% else %}
+                                <div class="d-flex align-items-center justify-content-center gap-2">
+
+                                    <select class="form-select form-select-xs user-role-select w-auto"
+                                            data-id="{{ u.id }}">
+                                        <option value="tenant_user" {% if u.role == 'tenant_user' %}selected{% endif %}>
+                                         Người dùng
+                                        </option>
+                                        <option value="tenant_admin"
+                                                {% if u.role == 'tenant_admin' %}selected{% endif %}>Quản trị tổ chức
+                                        </option>
+                                    </select>
+
+                                    <button type="button"
+                                            class="btn btn-xs btn-warning btn-reset-pwd"
+                                            data-user-id="{{ u.id }}"
+                                            data-user-email="{{ u.email }}"
+                                            title="Đặt lại mật khẩu">
+                                        <i class="bi bi-key-fill"></i> Reset
+                                    </button>
+
+                                </div>
+                            {% endif %}
+                        </td>
+                    </tr>
                 {% empty %}
-                <tr>
-                    <td colspan="6" class="text-center text-muted py-4">Hệ thống chưa có nhân viên trực thuộc tổ chức của bạn.</td>
-                </tr>
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">Hệ thống chưa có nhân viên trực thuộc tổ
+                            chức của bạn.
+                        </td>
+                    </tr>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ============================================================================
-     MODAL TẠO NHÂN VIÊN - PHÂN BIỆT SUPERUSER vs TENANT ADMIN
-     ============================================================================ -->
-<div class="modal fade" id="user-modal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0">
-            <div class="modal-header border-bottom-0">
-                <h5 class="modal-title fw-bold text-dark h6">Tạo tài khoản Nhân viên mới</h5>
-                <button type="button" class="btn-close small" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form id="user-form">
-                <div class="modal-body py-1">
-                    <!-- EMAIL -->
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-secondary">Địa chỉ Email đăng nhập</label>
-                        <input type="email" id="u_email" placeholder="username@domain.com" required
-                               class="form-control form-control-sm font-monospace">
-                    </div>
-
-                    <!-- PASSWORD -->
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-secondary">Mật khẩu khởi tạo</label>
-                        <input type="password" id="u_pwd" placeholder="••••••••" required
-                               class="form-control form-control-sm">
-                        <small class="text-muted d-block mt-1">
-                            Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số
-                        </small>
-                    </div>
-
-                    <!-- FULL NAME -->
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold text-secondary">Họ và tên</label>
-                        <input type="text" id="u_name" placeholder="Ví dụ: Nguyễn Văn A"
-                               class="form-control form-control-sm">
-                    </div>
-
-                    <!-- ============================================================
-                         TENANT SELECTION - SUPERUSER ONLY
-                         ============================================================ -->
-                    {% if request.user.is_superuser %}
-                    <!-- SUPERUSER: Bắt buộc chọn Tenant -->
-                    <div class="mb-2">
-                        <label class="form-label small fw-bold text-secondary">
-                            <span class="text-danger">*</span> Chọn Tổ chức (Bắt buộc)
-                        </label>
-                        <select id="u_tenant_id" class="form-select form-select-sm" required>
-                            <option value="">-- Chọn Tổ chức --</option>
-                            {% for tenant in all_tenants %}
-                            <option value="{{ tenant.id }}">
-                                {{ tenant.name }}
-                                {% if not tenant.is_active %} (Đóng băng){% endif %}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        <small class="text-muted d-block mt-1">
-                            <i class="bi bi-info-circle me-1"></i>
-                            Superuser phải chỉ định user sẽ thuộc tổ chức nào
-                        </small>
-                    </div>
-
-                    {% else %}
-                    <!-- TENANT ADMIN: Tự động gán tenant của họ -->
-                    <div class="alert alert-info small mb-0" role="alert">
-                        <i class="bi bi-check-circle me-2"></i>
-                        <strong>User sẽ được tạo cho tổ chức:</strong>
-                        <br>
-                        <span class="fw-bold text-primary">{{ request.user.tenant.name }}</span>
-                        <br>
-                        <small class="text-muted">
-                            (Tự động gán - Bạn chỉ có thể quản lý nhân viên trong tổ chức của mình)
-                        </small>
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- FOOTER -->
-                <div class="modal-footer border-top-0">
-                    <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Hủy</button>
-                    <button type="submit" class="btn btn-primary btn-sm fw-bold">
-                        <i class="bi bi-plus-circle me-1"></i>Tạo tài khoản
-                    </button>
-                </div>
-            </form>
+                </tbody>
+            </table>
         </div>
     </div>
-</div>
 
+    <!-- ============================================================================
+         MODAL TẠO NHÂN VIÊN - PHÂN BIỆT SUPERUSER vs TENANT ADMIN
+         ============================================================================ -->
+    <div class="modal fade" id="user-modal" data-bs-backdrop="static" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title fw-bold text-dark h6">Tạo tài khoản Nhân viên mới</h5>
+                    <button type="button" class="btn-close small" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="user-form">
+                    <div class="modal-body py-1">
+                        <!-- EMAIL -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Địa chỉ Email đăng nhập</label>
+                            <input type="email" id="u_email" placeholder="username@domain.com" required
+                                   class="form-control form-control-sm font-monospace">
+                        </div>
+
+                        <!-- PASSWORD -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Mật khẩu khởi tạo</label>
+                            <input type="password" id="u_pwd" placeholder="••••••••" required
+                                   class="form-control form-control-sm">
+                            <small class="text-muted d-block mt-1">
+                                Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số
+                            </small>
+                        </div>
+
+                        <!-- FULL NAME -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary">Họ và tên</label>
+                            <input type="text" id="u_name" placeholder="Ví dụ: Nguyễn Văn A"
+                                   class="form-control form-control-sm">
+                        </div>
+
+                        <!-- ============================================================
+                             TENANT SELECTION - SUPERUSER ONLY
+                             ============================================================ -->
+                        {% if request.user.is_superuser %}
+                            <!-- SUPERUSER: Bắt buộc chọn Tenant -->
+                            <div class="mb-2">
+                                <label class="form-label small fw-bold text-secondary">
+                                    <span class="text-danger">*</span> Chọn Tổ chức (Bắt buộc)
+                                </label>
+                                <select id="u_tenant_id" class="form-select form-select-sm" required>
+                                    <option value="">-- Chọn Tổ chức --</option>
+                                    {% for tenant in all_tenants %}
+                                        <option value="{{ tenant.id }}">
+                                            {{ tenant.name }}
+                                            {% if not tenant.is_active %} (Đóng băng){% endif %}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <small class="text-muted d-block mt-1">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Superuser phải chỉ định user sẽ thuộc tổ chức nào
+                                </small>
+                            </div>
+
+                        {% else %}
+                            <!-- TENANT ADMIN: Tự động gán tenant của họ -->
+                            <div class="alert alert-info small mb-0" role="alert">
+                                <i class="bi bi-check-circle me-2"></i>
+                                <strong>User sẽ được tạo cho tổ chức:</strong>
+                                <br>
+                                <span class="fw-bold text-primary">{{ request.user.tenant.name }}</span>
+                                <br>
+                                <small class="text-muted">
+                                    (Tự động gán - Bạn chỉ có thể quản lý nhân viên trong tổ chức của mình)
+                                </small>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- FOOTER -->
+                    <div class="modal-footer border-top-0">
+                        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary btn-sm fw-bold">
+                            <i class="bi bi-plus-circle me-1"></i>Tạo tài khoản
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="resetPasswordModalLabel">Đặt lại mật khẩu</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="resetPasswordForm">
+                    {% csrf_token %}
+                    <input type="hidden" id="reset_user_id" name="user_id">
+                    <div class="modal-body">
+                        <p>Đang đặt lại mật khẩu cho tài khoản: <strong id="reset_user_email"></strong></p>
+
+                        <div class="alert alert-danger d-none" id="resetPasswordError"></div>
+
+                        <div class="mb-3">
+                            <label for="new_password" class="form-label">Mật khẩu mới</label>
+                            <input type="password" class="form-control" id="new_password" name="new_password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="confirm_password" class="form-label">Xác nhận mật khẩu mới</label>
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary" id="btnSubmitReset">Xác nhận cập nhật</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>4
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    // ✅ Truyền thông tin tới JavaScript
-    window.USER_URLS = {
-        apiCreateStaff: "{% url 'api_create_staff' %}",
-    };
+    <script>
+        // ✅ Truyền thông tin tới JavaScript
+        window.USER_URLS = {
+            apiCreateStaff: "{% url 'api_create_staff' %}",
+            apiResetUserPassword: "{% url 'api_reset_user_password' 0 %}",
+        };
 
-    // ✅ Truyền thông tin user hiện tại
-    window.CURRENT_USER = {
-        isSuperuser: {% if request.user.is_superuser %}true{% else %}false{% endif %},
-        tenantId: {% if request.user.tenant %}{{ request.user.tenant.id }}{% else %}null{% endif %},
-        tenantName: "{{ request.user.tenant.name|default:'' }}",
-        email: "{{ request.user.email }}"
-    };
-</script>
-<script src="{% static 'js/user_list.js' %}"></script>
+        // ✅ Truyền thông tin user hiện tại
+        window.CURRENT_USER = {
+            isSuperuser: {% if request.user.is_superuser %}true{% else %}false{% endif %},
+            tenantId: {% if request.user.tenant %}{{ request.user.tenant.id }}{% else %}null{% endif %},
+            tenantName: "{{ request.user.tenant.name|default:'' }}",
+            email: "{{ request.user.email }}"
+        };
+    </script>
+    <script src="{% static 'js/user_list.js' %}"></script>
 {% endblock %}

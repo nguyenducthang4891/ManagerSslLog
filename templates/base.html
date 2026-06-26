@@ -140,10 +140,18 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navUser">
                         <li><span class="dropdown-item-text text-muted small">
-                            {% if request.user.is_superuser %}Admin hệ thống
+                            {% if request.user.is_superuser %} Quản trị hệ thống
                             {% elif request.user.role == 'tenant_admin' %}Quản trị tổ chức
                             {% else %}Nhân viên{% endif %}
                         </span></li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#modalChangePassword">
+                                <i class="bi bi-key me-2"></i>Đổi mật khẩu
+                            </button>
+                        </li>
                         <li>
                             <hr class="dropdown-divider">
                         </li>
@@ -163,6 +171,38 @@
     </div>
 </nav>
 
+<!-- Modal đổi mật khẩu -- đặt trong base.html để dùng được ở mọi trang -->
+<div class="modal fade" id="modalChangePassword" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="formChangePassword">
+                <div class="modal-header">
+                    <h6 class="modal-title fw-bold"><i class="bi bi-key me-2"></i>Đổi mật khẩu</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Mật khẩu hiện tại</label>
+                        <input type="password" class="form-control" name="old_password" required autocomplete="current-password">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Mật khẩu mới</label>
+                        <input type="password" class="form-control" name="new_password" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label small fw-bold text-muted">Xác nhận mật khẩu mới</label>
+                        <input type="password" class="form-control" name="confirm_password" required autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check-lg me-1"></i>Xác nhận đổi</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="container-fluid px-4 mt-4">
     {% block content %}{% endblock %}
 </div>
@@ -170,6 +210,28 @@
 <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;"></div>
 
 <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
+
+<script>
+    // Xử lý submit form đổi mật khẩu (modal dùng chung, có ở mọi trang).
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('formChangePassword');
+        if (!form) return;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+            const result = await postAndReload(
+                "{% url 'api_change_password' %}",
+                formData,
+                {event: e, successReload: false}
+            );
+            if (result && result.ok) {
+                form.reset();
+                toggleModal('modalChangePassword', false);
+            }
+        });
+    });
+</script>
 
 {% block extra_js %}{% endblock %}
 </body>
