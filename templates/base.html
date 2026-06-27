@@ -40,10 +40,12 @@
                         <li>
                             <a class="dropdown-item {% if request.resolver_match.url_name == 'domain_list' %}active{% endif %}"
                                href="{% url 'domain_list' %}"><i class="bi bi-globe2 me-2"></i>Tên miền</a></li>
+                     {% if request.user.is_superuser %}
                         <li>
                             <a class="dropdown-item {% if request.resolver_match.url_name == 'server_list' %}active{% endif %}"
                                href="{% url 'server_list' %}"><i class="bi bi-server me-2"></i>Cụm máy chủ Zimbra</a>
                         </li>
+                    {% endif %}
                     </ul>
                 </li>
 
@@ -66,12 +68,12 @@
                         <i class="bi bi-graph-up-arrow me-1"></i>Giám sát
                     </a>
                     <ul class="dropdown-menu" aria-labelledby="navMonitoring">
-                    {% if request.user.is_superuser %}
+
                         <li>
                             <a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_metric' %}active{% endif %}"
                                href="{% url 'monitor_metric' %}"><i class="bi bi-speedometer me-2"></i>Máy chủ</a></li>
                         <li>
-                        {% endif %}
+
                             <a class="dropdown-item {% if request.resolver_match.url_name == 'monitor_audit_list' %}active{% endif %}"
                                href="{% url 'monitor_audit_list' %}"><i class="bi bi-journal-text me-2"></i>Nhật ký hành
                                 động</a></li>
