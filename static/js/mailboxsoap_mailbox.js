@@ -200,10 +200,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `
             <tr>
-                <td class="font-monospace"><strong>${escapeHtml(account.email)}</strong></td>
+                <td class="font-monospace"><strong>${escapeHtml(account.email)}</strong>
+                <br>${escapeHtml(account.displayName || '-')}
+                </td>
                 <td>${escapeHtml(account.sn || '-')}</td>
                 <td>${escapeHtml(account.givenName || '-')}</td>
-                <td>${escapeHtml(account.displayName || '-')}</td>
+              
                 <td>
                     <small class="text-muted">
                         ${account.used_mb.toFixed(1)}MB / ${isUnlimited ? 'Không giới hạn' : account.quota_mb.toFixed(1) + 'MB'}
