@@ -1,9 +1,7 @@
 """
-apps/mailbox/views.py
+apps/mailbox/views.py - UPDATED
 
-View FBV cho chức năng Tìm kiếm & Quản lý Email (theo pattern của apps.core_networks
-và apps.tenants: login_required + service layer xử lý nghiệp vụ/phân quyền, view
-chỉ parse request & trả JsonResponse).
+⭐ Thêm endpoint: api_mailbox_create
 """
 from django.shortcuts import render
 from django.http import JsonResponse, StreamingHttpResponse
@@ -22,7 +20,7 @@ def mailbox_search_view(request):
 
     context = {
         'domains': domains,
-        'can_manage': can_manage,  # False => template chỉ render nút Reset Password
+        'can_manage': can_manage,
     }
     return render(request, 'mailboxsoap/mailbox_search.html', context)
 
@@ -77,6 +75,58 @@ def api_mailbox_detail(request):
 
 
 @login_required(login_url='login')
+def api_mailbox_create(request):
+    """
+    ⭐ NEW: POST tạo tài khoản email mới
+
+    Parameters:
+    - domain_id: int
+    - email: str (phần local, ví dụ "user" từ "user@domain.com")
+    - password: str (phải mạnh: 8+ chars, hoa, thường, số, đặc biệt)
+    - givenName: str (optional)
+    - sn: str (optional)
+    - displayName: str (optional)
+    - quota_mb: int (default 1024, min 100, max 10240)
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        domain_id = int(request.POST.get('domain_id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'Tên miền không hợp lệ.'}, status=400)
+
+    email_local = request.POST.get('email_local', '').strip()
+    domain_name = request.POST.get('domain_name', '').strip()
+    email = f"{email_local}@{domain_name}" if domain_name else email_local
+
+    password = request.POST.get('password', '')
+    given_name = request.POST.get('givenName', '')
+    sn = request.POST.get('sn', '')
+    display_name = request.POST.get('displayName', '')
+
+    try:
+        quota_mb = int(request.POST.get('quota_mb', 1024))
+    except (TypeError, ValueError):
+        quota_mb = 1024
+
+    try:
+        result = MailboxService.create_account(
+            request.user, domain_id, email, password,
+            given_name=given_name, sn=sn, display_name=display_name,
+            quota_mb=quota_mb
+        )
+        return JsonResponse({
+            'message': f'Đã tạo tài khoản email {email} thành công.',
+            'account': result
+        })
+    except ValidationError as e:
+        return JsonResponse({'error': str(e.message)}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'Lỗi tạo tài khoản trên Zimbra: {str(e)}'}, status=502)
+
+
+@login_required(login_url='login')
 def api_mailbox_update_profile(request):
     """POST: sửa givenName/sn/displayName/title/mobile. Superuser & Tenant Admin."""
     if request.method != 'POST':
@@ -89,9 +139,10 @@ def api_mailbox_update_profile(request):
 
     email = request.POST.get('email', '')
     profile = {field: request.POST.get(field, '') for field in PROFILE_ATTRS}
+    quota_mb_raw = request.POST.get('quota_mb', None)
 
     try:
-        MailboxService.update_profile(request.user, domain_id, email, profile)
+        MailboxService.update_profile(request.user, domain_id, email, profile, quota_mb=quota_mb_raw)
         return JsonResponse({'message': f'Đã cập nhật thông tin hồ sơ cho {email}.'})
     except ValidationError as e:
         return JsonResponse({'error': str(e.message)}, status=400)
@@ -103,8 +154,7 @@ def api_mailbox_update_profile(request):
 def api_mailbox_reset_password(request):
     """
     POST: reset password.
-    DUY NHẤT action mailbox mà Nhân viên (tenant_user) cũng được phép gọi --
-    service layer chỉ kiểm tra domain có thuộc tenant của họ hay không.
+    DUY NHẤT action mailbox mà Nhân viên (tenant_user) cũng được phép gọi.
     """
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
@@ -199,9 +249,7 @@ def api_mailbox_delete(request):
 def mailbox_backup_download(request):
     """
     GET: tải file backup .tgz của 1 mailbox.
-    Stream trực tiếp từ Zimbra (https://<host>:7071/home/<email>/?fmt=tgz, HTTP
-    Basic Auth bằng admin email/password của ZimbraServer) về client, KHÔNG ghi
-    file tạm ra disk server Django và không load toàn bộ file vào RAM.
+    Stream trực tiếp từ Zimbra về client, KHÔNG ghi file tạm ra disk.
     """
     if request.method != 'GET':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
@@ -233,8 +281,7 @@ def mailbox_backup_download(request):
         upstream.close()
         client.close()
         return JsonResponse(
-            {'error': f'Zimbra từ chối yêu cầu tải backup (HTTP {upstream.status_code}). '
-                      f'Kiểm tra lại quyền Admin hoặc email có tồn tại không.'},
+            {'error': f'Zimbra từ chối yêu cầu tải backup (HTTP {upstream.status_code})'},
             status=502,
         )
 

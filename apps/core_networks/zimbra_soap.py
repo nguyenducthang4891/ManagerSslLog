@@ -262,6 +262,57 @@ class ZimbraAdminSoapClient:
             results.append(attrs)
         return results
 
+    def create_account(self, email: str, password: str, attrs: dict) -> dict:
+        """
+        Tạo account mới bằng CreateAccountRequest.
+        `attrs` là dict {tên_attribute_zimbra: giá_trị} (givenName, sn,
+        displayName, zimbraMailQuota, ...). Giá trị rỗng/None bị bỏ qua,
+        TRỪ zimbraMailQuota="0" (0 hợp lệ -- nghĩa là không giới hạn dung
+        lượng, không được coi là "rỗng" và bỏ qua).
+        """
+        if not self.token:
+            self.login()
+
+        safe_token = escape(self.token)
+        safe_email = escape(email.strip())
+        safe_password = escape(password)
+
+        a_tags = ""
+        for k, v in attrs.items():
+            if v is None:
+                continue
+            if v == "" and k != "zimbraMailQuota":
+                continue
+            a_tags += f'<a n="{escape(k)}">{escape(str(v))}</a>'
+
+        soap_body = (
+            '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">'
+            '<soap:Header>'
+            '<context xmlns="urn:zimbra">'
+            f'<authToken>{safe_token}</authToken>'
+            '</context>'
+            '</soap:Header>'
+            '<soap:Body>'
+            '<CreateAccountRequest xmlns="urn:zimbraAdmin" '
+            f'name="{safe_email}" password="{safe_password}">'
+            f'{a_tags}'
+            '</CreateAccountRequest>'
+            '</soap:Body>'
+            '</soap:Envelope>'
+        )
+
+        data = self._post_soap(soap_body, action_label=f"tạo tài khoản email {email}")
+
+        try:
+            acc = data['soap:Envelope']['soap:Body']['CreateAccountResponse']['account']
+        except KeyError:
+            raise ValidationError(f"Tạo tài khoản '{email}' thất bại: Zimbra không trả về thông tin account.")
+
+        result = self._attrs_to_dict(acc)
+        result['name'] = acc.get('@name', email)
+        result['id'] = acc.get('@id', '')
+        return result
+
     def get_account(self, email: str) -> dict:
         """Lấy chi tiết 1 account theo email (GetAccountRequest)."""
         if not self.token:

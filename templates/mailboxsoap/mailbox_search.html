@@ -20,13 +20,51 @@
         .status-badge-closed {
             background-color: #6c757d;
         }
+
+        .quota-bar {
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .quota-fill {
+            height: 100%;
+            background-color: #0d6efd;
+            transition: width 0.3s ease;
+        }
+
+        .quota-fill.warning {
+            background-color: #ffc107;
+        }
+
+        .quota-fill.danger {
+            background-color: #dc3545;
+        }
+
+        /* ⭐ Thu nhỏ chiều cao modal: thân modal cuộn riêng, modal không
+           tràn quá khung nhìn trên màn hình thấp/laptop. */
+        #createAccountModal .modal-body,
+        #editAccountModal .modal-body {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        #editAccountModal .modal-dialog {
+            max-width: 700px;
+        }
     </style>
 {% endblock %}
 
 {% block content %}
     <div class="card shadow-sm">
-        <div class="card-header bg-white">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-envelope-paper me-2"></i>Tìm kiếm & Quản lý Email</h5>
+            {% if can_manage %}
+            <button type="button" class="btn btn-success btn-sm" id="btnOpenCreateAccount">
+                <i class="bi bi-plus-circle me-1"></i>Tạo Email mới
+            </button>
+            {% endif %}
         </div>
         <div class="card-body">
 
@@ -71,8 +109,7 @@
                         <th>Họ (sn)</th>
                         <th>Tên (givenName)</th>
                         <th>Tên hiển thị</th>
-                        <th>Chức danh</th>
-                        <th>Điện thoại</th>
+                        <th>Dung lượng</th>
                         <th>Trạng thái</th>
                         <th class="text-end">Hành động</th>
                     </tr>
@@ -83,9 +120,100 @@
         </div>
     </div>
 
-    <!-- Modal: Sửa hồ sơ / Đổi tên / Đổi trạng thái (Superuser & Tenant Admin) -->
-    <div class="modal fade" id="editAccountModal" tabindex="-1" aria-hidden="true">
+    <!-- ============================================================
+         Modal: Tạo Email Mới (Superuser & Tenant Admin)
+         ============================================================ -->
+    <div class="modal fade" id="createAccountModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Tạo Email mới</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createAccountForm">
+                        <input type="hidden" id="createDomainId">
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-12">
+                                <label class="form-label small text-muted">Tên miền</label>
+                                <select class="form-select" id="createDomain" required>
+                                    <option value="" disabled selected>-- Chọn --</option>
+                                    {% for domain in domains %}
+                                    <option value="{{ domain.id }}" data-name="{{ domain.name }}">
+                                        {{ domain.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                     <div class="row g-2 mb-2">
+                            <div class="col-md-12">
+                                <label class="form-label small text-muted">Địa chỉ Email (phần local)</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="createEmailLocal"
+                                           placeholder="user" required pattern="[a-zA-Z0-9._%-]+">
+                                    <span class="input-group-text" id="createDomainSuffix">@domain.com</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label small text-muted">Tên (givenName)</label>
+                                <input type="text" class="form-control" id="createGivenName" placeholder="Việt">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small text-muted">Họ (sn)</label>
+                                <input type="text" class="form-control" id="createSn" placeholder="Nguyễn Văn">
+                            </div>
+                        </div>
+
+                        <div class="mb-2">
+                            <label class="form-label small text-muted">Tên hiển thị (displayName) - để trống tự tạo</label>
+                            <input type="text" class="form-control" id="createDisplayName"
+                                   placeholder="Nguyễn Văn Việt">
+                        </div>
+
+                        <div class="row g-2 mb-1">
+                            <div class="col-md-7">
+                                <label class="form-label small text-muted">Mật khẩu khởi tạo</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="createPassword" required minlength="8">
+                                    <button class="btn btn-outline-secondary" type="button" id="toggleCreatePassword">
+                                        <i class="bi bi-eye-slash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small text-muted">Dung lượng (MB)</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="createQuota" value="1024"
+                                           min="0" max="10240" required>
+                                    <span class="input-group-text">MB</span>
+                                </div>
+                            </div>
+                        </div>
+                        <small class="text-muted d-block">
+                            Mật khẩu: 8+ ký tự, có hoa/thường/số/đặc biệt. Dung lượng: 0 = không giới hạn, hoặc 100-10240 MB.
+                        </small>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" class="btn btn-success" id="btnConfirmCreateAccount">
+                        <i class="bi bi-check2 me-1"></i>Tạo Email
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         Modal: Sửa hồ sơ / Đổi tên / Đổi trạng thái (Superuser & Tenant Admin)
+         ============================================================ -->
+    <div class="modal fade" id="editAccountModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Chỉnh sửa tài khoản</h5>
@@ -99,45 +227,71 @@
                         <label class="form-label small text-muted">Email</label>
                         <input type="text" class="form-control" id="editEmailDisplay" disabled>
                     </div>
-                    <div class="row g-2 mb-2">
-                        <div class="col-6">
-                            <label class="form-label small text-muted">Tên (givenName)</label>
-                            <input type="text" class="form-control" id="editGivenName">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small text-muted">Họ (sn)</label>
-                            <input type="text" class="form-control" id="editSn">
-                        </div>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small text-muted">Tên hiển thị (displayName)</label>
-                        <input type="text" class="form-control" id="editDisplayName">
-                    </div>
-                    <div class="row g-2 mb-2">
-                        <div class="col-6">
-                            <label class="form-label small text-muted">Chức danh (title)</label>
-                            <input type="text" class="form-control" id="editTitle">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small text-muted">Điện thoại (mobile)</label>
-                            <input type="text" class="form-control" id="editMobile">
-                        </div>
-                    </div>
 
-                    <hr>
+                    <div class="row g-3">
+                        <!-- Cột trái: hồ sơ -->
+                        <div class="col-md-7">
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small text-muted">Tên (givenName)</label>
+                                    <input type="text" class="form-control" id="editGivenName">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small text-muted">Họ (sn)</label>
+                                    <input type="text" class="form-control" id="editSn">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small text-muted">Tên hiển thị (displayName)</label>
+                                <input type="text" class="form-control" id="editDisplayName">
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small text-muted">Chức danh (title)</label>
+                                    <input type="text" class="form-control" id="editTitle">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small text-muted">Điện thoại (mobile)</label>
+                                    <input type="text" class="form-control" id="editMobile">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small text-muted">Đổi địa chỉ email (Rename)</label>
+                                <input type="text" class="form-control" id="editNewEmail" placeholder="Để trống nếu không đổi">
+                            </div>
+                            <div class="mb-1">
+                                <label class="form-label small text-muted">Trạng thái tài khoản</label>
+                                <select class="form-select" id="editStatus">
+                                    <option value="active">Hoạt động (active)</option>
+                                    <option value="locked">Khóa (locked)</option>
+                                    <option value="closed">Đóng (closed)</option>
+                                </select>
+                            </div>
+                        </div>
 
-                    <div class="mb-2">
-                        <label class="form-label small text-muted">Đổi địa chỉ email (Rename)</label>
-                        <input type="text" class="form-control" id="editNewEmail" placeholder="Để trống nếu không đổi">
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label small text-muted">Trạng thái tài khoản</label>
-                        <select class="form-select" id="editStatus">
-                            <option value="active">Hoạt động (active)</option>
-                            <option value="locked">Khóa (locked)</option>
-                            <option value="closed">Đóng (closed)</option>
-                        </select>
+                        <!-- Cột phải: quota -->
+                        <div class="col-md-5">
+                            <div class="alert alert-info mb-2 py-2">
+                                <small><strong>Dung lượng</strong></small>
+                                <div class="mt-1">
+                                    <small>Đã dùng: <span id="editUsedMb">0</span> MB / Quota: <span id="editQuotaMb">0</span> MB</small>
+                                    <div class="quota-bar mt-2">
+                                        <div class="quota-fill" id="editQuotaBar" style="width: 0%"></div>
+                                    </div>
+                                    <small class="text-muted d-block mt-1">
+                                        <span id="editQuotaPercent">0%</span> đã sử dụng
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="mb-1">
+                                <label class="form-label small text-muted">Đặt quota mới (MB)</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="editQuotaInput" min="0" max="10240">
+                                    <span class="input-group-text">MB</span>
+                                </div>
+                                <small class="text-muted">0 = không giới hạn. Để trống nếu không đổi.</small>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer justify-content-between">
@@ -191,9 +345,6 @@
 
 {% block extra_js %}
     <script>
-        // Quyền hiện tại của user, set từ server-side render -- KHÔNG dùng để tự
-        // ý quyết định bảo mật (mọi action vẫn được service.py kiểm tra lại phía
-        // server), chỉ dùng để ẩn/hiện nút cho gọn UI.
         window.MAILBOX_CAN_MANAGE = {{ can_manage|yesno:"true,false" }};
     </script>
     <script src="{% static 'js/mailboxsoap_mailbox.js' %}" defer></script>

@@ -1,692 +1,477 @@
 /**
- * mailbox.js
+ * mailboxsoap_mailbox.js - UPDATED
  *
- * Logic toàn bộ tính năng "Tìm kiếm & Quản lý Email" (Mailbox Search):
- * - Tìm kiếm account theo email trong 1 domain
- * - Hiển thị chi tiết tài khoản
- * - Sửa hồ sơ (givenName, sn, displayName, title, mobile)
- * - Đặt lại mật khẩu (mọi vai trò)
- * - Đổi tên email (rename) - Superuser/Tenant Admin
- * - Đổi trạng thái (active/locked/closed) - Superuser/Tenant Admin
- * - Xóa vĩnh viễn account - Superuser/Tenant Admin
- * - Tải backup .tgz - Superuser/Tenant Admin
+ * ⭐ Thêm:
+ * - Modal tạo Email mới
+ * - Hiển thị quota + used size trong search results
+ * - Hiển thị quota bar trong edit modal
  */
 
-document.addEventListener('DOMContentLoaded', function () {
-    attachFormSearchHandlers();
-    attachEditModalHandlers();
-    attachResetPasswordModalHandlers();
-    restoreSearchStateFromUrl();
+document.addEventListener('DOMContentLoaded', () => {
+    // ====================================================================
+    // CONSTANTS
+    // ====================================================================
+    const API_SEARCH = '/soap/api/mailbox/search/';
+    const API_DETAIL = '/soap/api/mailbox/detail/';
+    const API_CREATE = '/soap/api/mailbox/create/';
+    const API_UPDATE_PROFILE = '/soap/api/mailbox/update-profile/';
+    const API_RESET_PASSWORD = '/soap/api/mailbox/reset-password/';
+    const API_RENAME = '/soap/api/mailbox/rename/';
+    const API_SET_STATUS = '/soap/api/mailbox/set-status/';
+    const API_DELETE = '/soap/api/mailbox/delete/';
+    const API_BACKUP = '/soap/api/mailbox/backup/';
 
-
-});
-
-
-
-// ============================================================================
-// 1. FORM TÌM KIẾM (có Infinite Scroll)
-// ============================================================================
-
-// State của lần tìm kiếm hiện tại -- dùng để: (1) infinite scroll biết offset
-// kế tiếp, (2) refresh lại đúng kết quả sau khi sửa tài khoản trong modal mà
-// không cần location.reload() (tránh mất domain/từ khóa đang xem).
-const mailboxSearchState = {
-    domainId: null,
-    query: '',
-    offset: 0,
-    isLoading: false,
-    hasMore: false,
-};
-
-let mailboxScrollObserver = null;
-
-function attachFormSearchHandlers() {
-    const form = document.getElementById('mailboxSearchForm');
-    if (!form) return;
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await performSearch({resetUrl: true});
-    });
-}
-
-/**
- * Đọc domain_id/q từ URL query string lúc tải trang (nếu có) để tự điền lại
- * form và tìm kiếm ngay -- dùng khi quay lại trang sau khi lưu thay đổi trong
- * modal, hoặc khi người dùng chia sẻ/bookmark URL có sẵn kết quả tìm kiếm.
- */
-function restoreSearchStateFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const domainId = params.get('domain_id');
-    const query = params.get('q');
-
-    if (!domainId || !query) return;
-
+    const searchForm = document.getElementById('mailboxSearchForm');
     const domainSelect = document.getElementById('domainSelect');
-    const queryInput = document.getElementById('emailQueryInput');
-    if (!domainSelect || !queryInput) return;
+    const emailQueryInput = document.getElementById('emailQueryInput');
+    const resultsTable = document.getElementById('mailboxResultsTable');
+    const resultsBody = document.getElementById('mailboxResultsBody');
+    const loadingDiv = document.getElementById('mailboxLoading');
+    const emptyDiv = document.getElementById('mailboxEmptyState');
 
-    // Chỉ set nếu domain đó thực sự có trong danh sách quyền của user hiện tại
-    const optionExists = Array.from(domainSelect.options).some(opt => opt.value === domainId);
-    if (!optionExists) return;
+    let offset = 0;
+    let hasMore = false;
+    let currentDomainId = null;
+    let currentQuery = '';
 
-    domainSelect.value = domainId;
-    queryInput.value = query;
+    // ====================================================================
+    // 1. MODAL CREATE ACCOUNT
+    // ====================================================================
+    const createAccountModal = new bootstrap.Modal(document.getElementById('createAccountModal'));
+    const btnOpenCreateAccount = document.getElementById('btnOpenCreateAccount');
+    const createDomainSelect = document.getElementById('createDomain');
+    const createEmailLocal = document.getElementById('createEmailLocal');
+    const createDomainSuffix = document.getElementById('createDomainSuffix');
+    const createGivenName = document.getElementById('createGivenName');
+    const createSn = document.getElementById('createSn');
+    const createDisplayName = document.getElementById('createDisplayName');
+    const createPassword = document.getElementById('createPassword');
+    const toggleCreatePassword = document.getElementById('toggleCreatePassword');
+    const createQuota = document.getElementById('createQuota');
+    const btnConfirmCreateAccount = document.getElementById('btnConfirmCreateAccount');
 
-    performSearch({resetUrl: false});
-}
-
-/**
- * Cập nhật URL (?domain_id=&q=) bằng replaceState, KHÔNG tạo entry lịch sử
- * mới và KHÔNG reload trang -- chỉ để giữ lại state khi người dùng F5 hoặc
- * khi mình chủ động re-search sau khi sửa tài khoản.
- */
-function updateSearchUrl(domainId, query) {
-    const url = new URL(window.location.href);
-    url.searchParams.set('domain_id', domainId);
-    url.searchParams.set('q', query);
-    history.replaceState(null, '', url);
-}
-
-/**
- * Thực hiện tìm kiếm từ đầu (offset = 0), xóa bảng kết quả cũ.
- * @param {object} opts - { resetUrl: boolean } - true khi user bấm nút Tìm kiếm,
- *   false khi gọi lại để khôi phục/refresh state đã có (không cần update URL lại).
- */
-async function performSearch(opts = {}) {
-    const domainId = document.getElementById('domainSelect')?.value;
-    const query = document.getElementById('emailQueryInput')?.value || '';
-
-    if (!domainId) {
-        showToast('Vui lòng chọn tên miền cần tìm kiếm.', 'warning');
-        return;
+    if (btnOpenCreateAccount) {
+        btnOpenCreateAccount.addEventListener('click', () => {
+            document.getElementById('createAccountForm').reset();
+            createDomainSelect.value = '';
+            createDomainSuffix.textContent = '@domain.com';
+            createAccountModal.show();
+        });
     }
 
-    if (!query.trim()) {
-        showToast('Vui lòng nhập từ khóa email cần tìm kiếm.', 'warning');
-        return;
-    }
+    // Update domain suffix when changed
+    createDomainSelect.addEventListener('change', () => {
+        const selected = createDomainSelect.options[createDomainSelect.selectedIndex];
+        const domainName = selected.getAttribute('data-name') || 'domain.com';
+        createDomainSuffix.textContent = '@' + domainName;
+    });
 
-    // Reset state cho lần tìm kiếm mới
-    mailboxSearchState.domainId = domainId;
-    mailboxSearchState.query = query;
-    mailboxSearchState.offset = 0;
-    mailboxSearchState.hasMore = false;
+    // Toggle password visibility
+    toggleCreatePassword.addEventListener('click', () => {
+        const type = createPassword.type === 'password' ? 'text' : 'password';
+        createPassword.type = type;
+        toggleCreatePassword.innerHTML = type === 'password'
+            ? '<i class="bi bi-eye-slash"></i>'
+            : '<i class="bi bi-eye"></i>';
+    });
 
-    if (opts.resetUrl !== false) {
-        updateSearchUrl(domainId, query);
-    }
-
-    const tbody = document.getElementById('mailboxResultsBody');
-    if (tbody) tbody.innerHTML = '';
-    removeScrollSentinel();
-
-    setTableState('loading');
-    await loadNextSearchPage({isFirstPage: true});
-}
-
-/**
- * Tải 1 "trang" kết quả kế tiếp dựa trên mailboxSearchState.offset hiện tại,
- * rồi nối thêm vào bảng (infinite scroll). Tự chặn gọi trùng nếu đang loading
- * hoặc đã hết dữ liệu.
- */
-async function loadNextSearchPage(opts = {}) {
-    const {isFirstPage = false} = opts;
-    const state = mailboxSearchState;
-
-    if (state.isLoading) return;
-    if (!isFirstPage && !state.hasMore) return;
-
-    state.isLoading = true;
-    if (!isFirstPage) showScrollLoadingIndicator(true);
-
-    try {
-        const url = `/soap/api/mailbox/search/?domain_id=${state.domainId}` +
-            `&q=${encodeURIComponent(state.query)}&offset=${state.offset}`;
-        const result = await fetchJSON(url);
-
-        if (!result.ok) {
-            showToast(result.data.error || 'Lỗi truy vấn Zimbra.', 'danger');
-            if (isFirstPage) setTableState('empty');
-            state.hasMore = false;
+    // Create account submit
+    btnConfirmCreateAccount.addEventListener('click', async () => {
+        const domainId = createDomainSelect.value;
+        if (!domainId) {
+            showToast('Vui lòng chọn tên miền', 'warning');
             return;
         }
 
-        const results = result.data.results || [];
-        state.hasMore = !!result.data.has_more;
+        const selected = createDomainSelect.options[createDomainSelect.selectedIndex];
+        const domainName = selected.getAttribute('data-name');
+        const emailLocal = createEmailLocal.value.trim();
+        const email = emailLocal + '@' + domainName;
+        const password = createPassword.value;
+        const givenName = createGivenName.value.trim();
+        const sn = createSn.value.trim();
+        const displayName = createDisplayName.value.trim();
+        const quota = createQuota.value;
 
-        if (isFirstPage && results.length === 0) {
-            setTableState('empty');
+        if (!emailLocal) {
+            showToast('Vui lòng nhập phần local của email', 'warning');
             return;
         }
 
-        appendSearchResults(results, state.domainId);
-        setTableState('results');
-        state.offset += results.length;
+        if (!password || password.length < 8) {
+            showToast('Mật khẩu phải có ít nhất 8 ký tự', 'warning');
+            return;
+        }
 
-        if (state.hasMore) {
-            ensureScrollSentinel();
+        btnConfirmCreateAccount.disabled = true;
+        btnConfirmCreateAccount.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Đang tạo...';
+
+        const formData = new FormData();
+        formData.append('domain_id', domainId);
+        formData.append('email_local', emailLocal);
+        formData.append('domain_name', domainName);
+        formData.append('password', password);
+        formData.append('givenName', givenName);
+        formData.append('sn', sn);
+        formData.append('displayName', displayName);
+        formData.append('quota_mb', quota);
+
+        const result = await fetchJSON(API_CREATE, { method: 'POST', body: formData });
+
+        btnConfirmCreateAccount.disabled = false;
+        btnConfirmCreateAccount.innerHTML = '<i class="bi bi-check2 me-1"></i>Tạo Email';
+
+        if (result.ok) {
+            showToast(result.data.message || 'Đã tạo email mới thành công!', 'success');
+            createAccountModal.hide();
+            // Làm mới danh sách tìm kiếm
+            offset = 0;
+            if (currentDomainId) {
+                performSearch();
+            }
         } else {
-            removeScrollSentinel();
+            showToast(result.data.error || 'Lỗi tạo email', 'danger');
+        }
+    });
+
+    // ====================================================================
+    // 2. SEARCH & DISPLAY QUOTA
+    // ====================================================================
+    searchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        currentDomainId = domainSelect.value;
+        currentQuery = emailQueryInput.value;
+        offset = 0;
+        performSearch();
+    });
+
+    async function performSearch() {
+        if (!currentDomainId) {
+            showToast('Vui lòng chọn tên miền', 'warning');
+            return;
         }
 
-    } catch (err) {
-        console.error('Search error:', err);
-        showToast('Lỗi kết nối. Vui lòng thử lại.', 'danger');
-        if (isFirstPage) setTableState('empty');
-        state.hasMore = false;
-    } finally {
-        state.isLoading = false;
-        showScrollLoadingIndicator(false);
-    }
-}
+        loadingDiv.classList.remove('d-none');
+        resultsTable.classList.add('d-none');
+        emptyDiv.classList.add('d-none');
 
-function setTableState(state) {
-    const loading = document.getElementById('mailboxLoading');
-    const empty = document.getElementById('mailboxEmptyState');
-    const table = document.getElementById('mailboxResultsTable');
+        const params = new URLSearchParams({
+            domain_id: currentDomainId,
+            q: currentQuery,
+            offset: offset,
+        });
 
-    // Ẩn tất cả
-    if (loading) loading.classList.add('d-none');
-    if (empty) empty.classList.add('d-none');
-    if (table) table.classList.add('d-none');
+        const result = await fetchJSON(`${API_SEARCH}?${params}`);
 
-    // Hiện cái cần
-    if (state === 'loading' && loading) {
-        loading.classList.remove('d-none');
-    } else if (state === 'empty' && empty) {
-        empty.classList.remove('d-none');
-    } else if (state === 'results' && table) {
-        table.classList.remove('d-none');
-    }
-}
+        loadingDiv.classList.add('d-none');
 
-/**
- * Tạo (nếu chưa có) 1 hàng "sentinel" vô hình cuối bảng + IntersectionObserver
- * theo dõi nó. Khi sentinel lọt vào viewport (người dùng kéo tới đáy bảng),
- * tự động gọi loadNextSearchPage() để tải tiếp -- đây là cơ chế infinite scroll.
- */
-function ensureScrollSentinel() {
-    const tbody = document.getElementById('mailboxResultsBody');
-    if (!tbody) return;
+        if (result.ok) {
+            const { results, has_more } = result.data;
+            hasMore = has_more;
 
-    let sentinelRow = document.getElementById('mailboxScrollSentinel');
-    if (!sentinelRow) {
-        sentinelRow = document.createElement('tr');
-        sentinelRow.id = 'mailboxScrollSentinel';
-        sentinelRow.innerHTML = `
-            <td colspan="8" class="text-center text-muted py-3">
-                <div class="spinner-border spinner-border-sm d-none" id="mailboxScrollSpinner"></div>
-            </td>
-        `;
-        tbody.appendChild(sentinelRow);
-    } else {
-        // Đảm bảo sentinel luôn ở cuối cùng sau khi nối thêm kết quả mới
-        tbody.appendChild(sentinelRow);
+            if (offset === 0) {
+                resultsBody.innerHTML = '';
+            }
+
+            if (results.length === 0 && offset === 0) {
+                emptyDiv.classList.remove('d-none');
+            } else {
+                resultsTable.classList.remove('d-none');
+                results.forEach(acc => {
+                    resultsBody.innerHTML += buildRowHtml(acc);
+                });
+            }
+        } else {
+            showToast(result.data.error || 'Lỗi tìm kiếm', 'danger');
+        }
     }
 
-    if (!mailboxScrollObserver) {
-        mailboxScrollObserver = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                    loadNextSearchPage();
-                }
-            });
-        }, {root: null, rootMargin: '0px 0px 200px 0px', threshold: 0});
-    }
+    function buildRowHtml(account) {
+        const isUnlimited = !account.quota_mb || account.quota_mb === 0;
+        const quotaPercent = (!isUnlimited && account.quota_mb > 0)
+            ? Math.round((account.used_mb / account.quota_mb) * 100)
+            : 0;
 
-    mailboxScrollObserver.observe(sentinelRow);
-}
+        const statusClass = {
+            'active': 'badge bg-success',
+            'locked': 'badge bg-warning',
+            'closed': 'badge bg-secondary'
+        }[account.status] || 'badge bg-secondary';
 
-function removeScrollSentinel() {
-    const sentinelRow = document.getElementById('mailboxScrollSentinel');
-    if (sentinelRow) {
-        if (mailboxScrollObserver) mailboxScrollObserver.unobserve(sentinelRow);
-        sentinelRow.remove();
-    }
-}
-
-function showScrollLoadingIndicator(show) {
-    const spinner = document.getElementById('mailboxScrollSpinner');
-    if (spinner) spinner.classList.toggle('d-none', !show);
-}
-
-/**
- * Nối thêm kết quả mới vào CUỐI bảng hiện có (không xóa kết quả cũ) --
- * dùng cho infinite scroll. displaySearchResults() (tên cũ) đã đổi thành
- * appendSearchResults() để phản ánh đúng hành vi "nối thêm".
- */
-function appendSearchResults(results, domainId) {
-    const tbody = document.getElementById('mailboxResultsBody');
-    if (!tbody) return;
-
-    results.forEach((account) => {
-        const row = document.createElement('tr');
-
-        // Render status badge
-        const statusClass = `status-badge-${account.status || 'active'}`;
-        const statusLabel = {
-            'active': 'Hoạt động',
-            'locked': 'Khóa',
-            'closed': 'Đóng'
-        }[account.status] || account.status;
-
-        row.innerHTML = `
-            <td class="fw-bold">${escapeHtml(account.email)}</td>
-            <td>${escapeHtml(account.sn || '')}</td>
-            <td>${escapeHtml(account.givenName || '')}</td>
-            <td>${escapeHtml(account.displayName || '')}</td>
-            <td>${escapeHtml(account.title || '')}</td>
-            <td>${escapeHtml(account.mobile || '')}</td>
-            <td>
-                <span class="badge ${statusClass}">${statusLabel}</span>
-            </td>
-            <td class="text-end">
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-primary btn-action-reset-pwd"
-                            data-domain-id="${domainId}" data-email="${escapeHtml(account.email)}">
-                        <i class="bi bi-key"></i> Mật khẩu
+        return `
+            <tr>
+                <td class="font-monospace"><strong>${escapeHtml(account.email)}</strong></td>
+                <td>${escapeHtml(account.sn || '-')}</td>
+                <td>${escapeHtml(account.givenName || '-')}</td>
+                <td>${escapeHtml(account.displayName || '-')}</td>
+                <td>
+                    <small class="text-muted">
+                        ${account.used_mb.toFixed(1)}MB / ${isUnlimited ? 'Không giới hạn' : account.quota_mb.toFixed(1) + 'MB'}
+                        ${!isUnlimited ? `<br><span class="badge bg-secondary">${quotaPercent}%</span>` : ''}
+                    </small>
+                </td>
+                <td><span class="${statusClass}">${account.status}</span></td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" onclick="openEditModal('${escapeAttr(account.email)}')" title="Sửa">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="openResetPassword('${escapeAttr(account.email)}')" title="Đặt lại mật khẩu">
+                        <i class="bi bi-key"></i>
                     </button>
                     ${window.MAILBOX_CAN_MANAGE ? `
-                        <button type="button" class="btn btn-outline-secondary btn-action-edit"
-                                data-domain-id="${domainId}" data-email="${escapeHtml(account.email)}">
-                            <i class="bi bi-pencil"></i> Sửa
-                        </button>
-                        <button type="button" class="btn btn-outline-info btn-action-backup"
-                                data-domain-id="${domainId}" data-email="${escapeHtml(account.email)}">
-                            <i class="bi bi-download"></i> Backup
-                        </button>
-                    ` : ''}
-                </div>
-            </td>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="downloadBackup('${escapeAttr(account.email)}')" title="Tải backup .tgz">
+                        <i class="bi bi-download"></i>
+                    </button>` : ''}
+                </td>
+            </tr>
         `;
-
-        // Attach event handlers
-        const btnResetPwd = row.querySelector('.btn-action-reset-pwd');
-        if (btnResetPwd) {
-            btnResetPwd.addEventListener('click', () => openResetPasswordModal(
-                domainId,
-                account.email
-            ));
-        }
-
-        if (window.MAILBOX_CAN_MANAGE) {
-            const btnEdit = row.querySelector('.btn-action-edit');
-            if (btnEdit) {
-                btnEdit.addEventListener('click', () => openEditModal(domainId, account.email));
-            }
-
-            const btnBackup = row.querySelector('.btn-action-backup');
-            if (btnBackup) {
-                btnBackup.addEventListener('click', () => downloadBackup(domainId, account.email, btnBackup));
-            }
-        }
-
-        // Chèn TRƯỚC sentinel (nếu sentinel đã tồn tại từ trang trước), để
-        // sentinel luôn nằm cuối cùng trong bảng.
-        const sentinelRow = document.getElementById('mailboxScrollSentinel');
-        if (sentinelRow) {
-            tbody.insertBefore(row, sentinelRow);
-        } else {
-            tbody.appendChild(row);
-        }
-    });
-}
-
-// ============================================================================
-// 2. MODAL: EDIT ACCOUNT (Sửa hồ sơ, Đổi tên, Đổi trạng thái, Xóa)
-// ============================================================================
-
-function attachEditModalHandlers() {
-    const btnSave = document.getElementById('btnSaveAccountChanges');
-    const btnDelete = document.getElementById('btnDeleteAccountInModal');
-
-    if (btnSave) {
-        btnSave.addEventListener('click', async (e) => {
-            await saveAccountChanges(e);
-        });
     }
 
-    if (btnDelete) {
-        btnDelete.addEventListener('click', async (e) => {
-            await deleteAccount(e);
-        });
-    }
-}
+    // ====================================================================
+    // 3. EDIT MODAL WITH QUOTA DISPLAY
+    // ====================================================================
+    const editAccountModal = new bootstrap.Modal(document.getElementById('editAccountModal'));
+    const editDomainId = document.getElementById('editDomainId');
+    const editOriginalEmail = document.getElementById('editOriginalEmail');
+    const editEmailDisplay = document.getElementById('editEmailDisplay');
+    const editUsedMb = document.getElementById('editUsedMb');
+    const editQuotaMb = document.getElementById('editQuotaMb');
+    const editQuotaBar = document.getElementById('editQuotaBar');
+    const editQuotaPercent = document.getElementById('editQuotaPercent');
+    const editQuotaInput = document.getElementById('editQuotaInput');
+    const btnSaveAccountChanges = document.getElementById('btnSaveAccountChanges');
+    const btnDeleteAccountInModal = document.getElementById('btnDeleteAccountInModal');
 
-async function openEditModal(domainId, email) {
-    // Fetch chi tiết account
-    try {
-        const result = await fetchJSON(`/soap/api/mailbox/detail/?domain_id=${domainId}&email=${encodeURIComponent(email)}`);
-
-        if (!result.ok) {
-            showToast(result.data.error || 'Không thể lấy chi tiết tài khoản.', 'danger');
+    window.openEditModal = async function(email) {
+        const domainId = domainSelect.value;
+        if (!domainId) {
+            showToast('Vui lòng chọn tên miền trước', 'warning');
             return;
         }
 
-        const detail = result.data.detail || {};
+        const result = await fetchJSON(`${API_DETAIL}?domain_id=${domainId}&email=${encodeURIComponent(email)}`);
 
-        // Điền dữ liệu vào form
-        document.getElementById('editDomainId').value = domainId;
-        document.getElementById('editOriginalEmail').value = email;
-        document.getElementById('editEmailDisplay').value = email;
-        document.getElementById('editGivenName').value = detail.givenName || '';
-        document.getElementById('editSn').value = detail.sn || '';
-        document.getElementById('editDisplayName').value = detail.displayName || '';
-        document.getElementById('editTitle').value = detail.title || '';
-        document.getElementById('editMobile').value = detail.mobile || '';
-        document.getElementById('editStatus').value = detail.status || 'active';
-        document.getElementById('editNewEmail').value = '';
+        if (result.ok) {
+            const { detail } = result.data;
+            editDomainId.value = domainId;
+            editOriginalEmail.value = email;
+            editEmailDisplay.value = email;
+            document.getElementById('editGivenName').value = detail.givenName || '';
+            document.getElementById('editSn').value = detail.sn || '';
+            document.getElementById('editDisplayName').value = detail.displayName || '';
+            document.getElementById('editTitle').value = detail.title || '';
+            document.getElementById('editMobile').value = detail.mobile || '';
+            document.getElementById('editStatus').value = detail.status || 'active';
+            document.getElementById('editNewEmail').value = '';
 
-        toggleModal('editAccountModal', true);
+            // ⭐ Update quota display -- quota_mb === 0 nghĩa là không giới hạn
+            const isUnlimited = !detail.quota_mb || detail.quota_mb === 0;
+            const quotaPercent = (!isUnlimited && detail.quota_mb > 0)
+                ? Math.round((detail.used_mb / detail.quota_mb) * 100)
+                : 0;
+            editUsedMb.textContent = detail.used_mb.toFixed(1);
+            editQuotaMb.textContent = isUnlimited ? 'Không giới hạn' : detail.quota_mb.toFixed(1);
+            editQuotaBar.style.width = quotaPercent + '%';
+            editQuotaPercent.textContent = isUnlimited ? '—' : quotaPercent + '%';
+            editQuotaInput.value = isUnlimited ? 0 : detail.quota_mb;
 
-    } catch (err) {
-        console.error('Error opening edit modal:', err);
-        showToast('Lỗi khi mở dialog chỉnh sửa.', 'danger');
-    }
-}
-
-async function saveAccountChanges(event) {
-    const domainId = parseInt(document.getElementById('editDomainId').value);
-    const originalEmail = document.getElementById('editOriginalEmail').value;
-    const newEmail = document.getElementById('editNewEmail').value.trim();
-    const newStatus = document.getElementById('editStatus').value;
-
-    // Chuẩn bị dữ liệu profile
-    const profileData = new FormData();
-    profileData.append('domain_id', domainId);
-    profileData.append('email', originalEmail);
-    profileData.append('givenName', document.getElementById('editGivenName').value);
-    profileData.append('sn', document.getElementById('editSn').value);
-    profileData.append('displayName', document.getElementById('editDisplayName').value);
-    profileData.append('title', document.getElementById('editTitle').value);
-    profileData.append('mobile', document.getElementById('editMobile').value);
-
-    const requests = [];
-
-    // 1. Update profile
-    requests.push(
-        fetchJSON('/soap/api/mailbox/update-profile/', {
-            method: 'POST',
-            body: profileData
-        })
-    );
-
-    // 2. Rename nếu có email mới
-    if (newEmail && newEmail !== originalEmail) {
-        const renameData = new FormData();
-        renameData.append('domain_id', domainId);
-        renameData.append('email', originalEmail);
-        renameData.append('new_email', newEmail);
-
-        requests.push(
-            fetchJSON('/soap/api/mailbox/rename/', {
-                method: 'POST',
-                body: renameData
-            })
-        );
-    }
-
-    // 3. Set status
-    const statusData = new FormData();
-    statusData.append('domain_id', domainId);
-    statusData.append('email', newEmail && newEmail !== originalEmail ? newEmail : originalEmail);
-    statusData.append('status', newStatus);
-
-    requests.push(
-        fetchJSON('/soap/api/mailbox/set-status/', {
-            method: 'POST',
-            body: statusData
-        })
-    );
-
-    // Gửi tất cả request
-    const btnSave = document.getElementById('btnSaveAccountChanges');
-    if (btnSave) {
-        btnSave.disabled = true;
-        btnSave.classList.add('disabled');
-    }
-
-    try {
-        const results = await Promise.all(requests);
-
-        // Kiểm tra kết quả
-        let hasError = false;
-        for (const result of results) {
-            if (!result.ok) {
-                hasError = true;
-                showToast(result.data.error || 'Lỗi khi cập nhật.', 'danger');
-                break;
+            // Color bar based on usage
+            editQuotaBar.classList.remove('warning', 'danger');
+            if (!isUnlimited && quotaPercent >= 90) {
+                editQuotaBar.classList.add('danger');
+            } else if (!isUnlimited && quotaPercent >= 70) {
+                editQuotaBar.classList.add('warning');
             }
+
+            editAccountModal.show();
+        } else {
+            showToast(result.data.error || 'Lỗi tải thông tin', 'danger');
+        }
+    };
+
+    // Save changes
+    btnSaveAccountChanges.addEventListener('click', async () => {
+        const domainId = editDomainId.value;
+        const email = editOriginalEmail.value;
+        const newEmail = document.getElementById('editNewEmail').value.trim();
+        const givenName = document.getElementById('editGivenName').value.trim();
+        const sn = document.getElementById('editSn').value.trim();
+        const displayName = document.getElementById('editDisplayName').value.trim();
+        const title = document.getElementById('editTitle').value.trim();
+        const mobile = document.getElementById('editMobile').value.trim();
+        const status = document.getElementById('editStatus').value;
+        const quotaRaw = editQuotaInput.value.trim();
+
+        btnSaveAccountChanges.disabled = true;
+
+        // Save profile
+        let profileData = new FormData();
+        profileData.append('domain_id', domainId);
+        profileData.append('email', email);
+        profileData.append('givenName', givenName);
+        profileData.append('sn', sn);
+        profileData.append('displayName', displayName);
+        profileData.append('title', title);
+        profileData.append('mobile', mobile);
+        if (quotaRaw !== '') {
+            profileData.append('quota_mb', quotaRaw);
         }
 
-        if (!hasError) {
+        const profileResult = await fetchJSON(API_UPDATE_PROFILE, { method: 'POST', body: profileData });
+
+        // Rename if needed
+        if (newEmail && newEmail !== email) {
+            const renameData = new FormData();
+            renameData.append('domain_id', domainId);
+            renameData.append('email', email);
+            renameData.append('new_email', newEmail);
+            await fetchJSON(API_RENAME, { method: 'POST', body: renameData });
+        }
+
+        // Set status
+        const statusData = new FormData();
+        statusData.append('domain_id', domainId);
+        statusData.append('email', email);
+        statusData.append('status', status);
+        await fetchJSON(API_SET_STATUS, { method: 'POST', body: statusData });
+
+        btnSaveAccountChanges.disabled = false;
+
+        if (profileResult.ok) {
             showToast('Đã lưu thay đổi thành công!', 'success');
-            toggleModal('editAccountModal', false);
-            if (btnSave) {
-                btnSave.disabled = false;
-                btnSave.classList.remove('disabled');
-            }
-            // Refresh lại đúng domain/từ khóa đang tìm kiếm (không reload cả
-            // trang) -- vừa giữ được state tìm kiếm, vừa không "nuốt" toast.
-            await performSearch({resetUrl: false});
+            editAccountModal.hide();
+            offset = 0;
+            performSearch();
         } else {
-            if (btnSave) {
-                btnSave.disabled = false;
-                btnSave.classList.remove('disabled');
-            }
+            showToast(profileResult.data.error || 'Lỗi lưu thay đổi', 'danger');
+        }
+    });
+
+    // Delete account
+    btnDeleteAccountInModal.addEventListener('click', async () => {
+        if (!confirm('Bạn chắc chắn muốn xóa vĩnh viễn tài khoản này? Không thể hoàn tác!')) {
+            return;
         }
 
-    } catch (err) {
-        console.error('Error saving changes:', err);
-        showToast('Lỗi kết nối. Vui lòng thử lại.', 'danger');
-        if (btnSave) {
-            btnSave.disabled = false;
-            btnSave.classList.remove('disabled');
-        }
-    }
-}
+        const domainId = editDomainId.value;
+        const email = editOriginalEmail.value;
 
-async function deleteAccount(event) {
-    const domainId = parseInt(document.getElementById('editDomainId').value);
-    const email = document.getElementById('editOriginalEmail').value;
+        const formData = new FormData();
+        formData.append('domain_id', domainId);
+        formData.append('email', email);
 
-    if (!confirm(`⚠️ CẢNH BÁO: Bạn sắp xóa vĩnh viễn tài khoản "${email}"!\n\nThao tác này KHÔNG thể hoàn tác. Bạn chắc chứ?`)) {
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('domain_id', domainId);
-    formData.append('email', email);
-
-    const btnDelete = document.getElementById('btnDeleteAccountInModal');
-    if (btnDelete) {
-        btnDelete.disabled = true;
-        btnDelete.classList.add('disabled');
-    }
-
-    try {
-        const result = await fetchJSON('/soap/api/mailbox/delete/', {
-            method: 'POST',
-            body: formData
-        });
+        const result = await fetchJSON(API_DELETE, { method: 'POST', body: formData });
 
         if (result.ok) {
-            showToast('Tài khoản đã xóa vĩnh viễn.', 'success');
-            toggleModal('editAccountModal', false);
-            if (btnDelete) {
-                btnDelete.disabled = false;
-                btnDelete.classList.remove('disabled');
-            }
-            // Refresh lại đúng domain/từ khóa đang tìm kiếm (không reload cả trang)
-            await performSearch({resetUrl: false});
+            showToast('Đã xóa tài khoản email!', 'success');
+            editAccountModal.hide();
+            offset = 0;
+            performSearch();
         } else {
-            showToast(result.data.error || 'Lỗi xóa tài khoản.', 'danger');
-            if (btnDelete) {
-                btnDelete.disabled = false;
-                btnDelete.classList.remove('disabled');
-            }
+            showToast(result.data.error || 'Lỗi xóa tài khoản', 'danger');
+        }
+    });
+
+    // ====================================================================
+    // 4. RESET PASSWORD
+    // ====================================================================
+    const resetPasswordModal = new bootstrap.Modal(document.getElementById('resetPasswordModal'));
+    const resetDomainId = document.getElementById('resetDomainId');
+    const resetEmail = document.getElementById('resetEmail');
+    const resetEmailDisplay = document.getElementById('resetEmailDisplay');
+    const resetNewPassword = document.getElementById('resetNewPassword');
+    const togglePassword = document.getElementById('togglePassword');
+    const btnConfirmResetPassword = document.getElementById('btnConfirmResetPassword');
+
+    window.openResetPassword = function(email) {
+        const domainId = domainSelect.value;
+        if (!domainId) {
+            showToast('Vui lòng chọn tên miền trước', 'warning');
+            return;
         }
 
-    } catch (err) {
-        console.error('Error deleting account:', err);
-        showToast('Lỗi kết nối. Vui lòng thử lại.', 'danger');
-        if (btnDelete) {
-            btnDelete.disabled = false;
-            btnDelete.classList.remove('disabled');
+        resetDomainId.value = domainId;
+        resetEmail.value = email;
+        resetEmailDisplay.textContent = email;
+        resetNewPassword.value = '';
+        resetPasswordModal.show();
+    };
+
+    togglePassword.addEventListener('click', () => {
+        const type = resetNewPassword.type === 'password' ? 'text' : 'password';
+        resetNewPassword.type = type;
+        document.getElementById('toggleIcon').className = type === 'password'
+            ? 'bi bi-eye-slash'
+            : 'bi bi-eye';
+    });
+
+    btnConfirmResetPassword.addEventListener('click', async () => {
+        const password = resetNewPassword.value;
+
+        if (!password || password.length < 8) {
+            showToast('Mật khẩu phải có ít nhất 8 ký tự', 'warning');
+            return;
         }
-    }
-}
 
-// ============================================================================
-// 3. MODAL: RESET PASSWORD
-// ============================================================================
+        btnConfirmResetPassword.disabled = true;
+        btnConfirmResetPassword.textContent = 'Đang xử lý...';
 
-function attachResetPasswordModalHandlers() {
-    const btnConfirm = document.getElementById('btnConfirmResetPassword');
-    if (btnConfirm) {
-        btnConfirm.addEventListener('click', async (e) => {
-            await resetPassword(e);
-        });
-    }
-    const toggleBtn = document.getElementById('togglePassword');
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', function () {
-            const passwordInput = document.getElementById('resetNewPassword');
-            const toggleIcon = document.getElementById('toggleIcon');
-            if (!passwordInput || !toggleIcon) return;
+        const formData = new FormData();
+        formData.append('domain_id', resetDomainId.value);
+        formData.append('email', resetEmail.value);
+        formData.append('new_password', password);
 
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                toggleIcon.classList.remove('bi-eye-slash');
-                toggleIcon.classList.add('bi-eye');
-            } else {
-                passwordInput.type = 'password';
-                toggleIcon.classList.remove('bi-eye');
-                toggleIcon.classList.add('bi-eye-slash');
-            }
-        });
-    }
-}
+        const result = await fetchJSON(API_RESET_PASSWORD, { method: 'POST', body: formData });
 
-function openResetPasswordModal(domainId, email) {
-    document.getElementById('resetDomainId').value = domainId;
-    document.getElementById('resetEmail').value = email;
-    document.getElementById('resetEmailDisplay').textContent = email;
-    document.getElementById('resetNewPassword').value = '';
-
-    toggleModal('resetPasswordModal', true);
-}
-
-async function resetPassword(event) {
-    const domainId = parseInt(document.getElementById('resetDomainId').value);
-    const email = document.getElementById('resetEmail').value;
-    const newPassword = document.getElementById('resetNewPassword').value;
-
-    if (!newPassword || newPassword.length < 8) {
-        showToast('Mật khẩu mới phải có ít nhất 8 ký tự.', 'warning');
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('domain_id', domainId);
-    formData.append('email', email);
-    formData.append('new_password', newPassword);
-
-    const btnConfirm = document.getElementById('btnConfirmResetPassword');
-    if (btnConfirm) {
-        btnConfirm.disabled = true;
-        btnConfirm.classList.add('disabled');
-    }
-
-    try {
-        const result = await fetchJSON('/soap/api/mailbox/reset-password/', {
-            method: 'POST',
-            body: formData
-        });
+        btnConfirmResetPassword.disabled = false;
+        btnConfirmResetPassword.textContent = 'Xác nhận';
 
         if (result.ok) {
-            showToast('Mật khẩu đã được đặt lại thành công!', 'success');
-            setTimeout(() => {
-                toggleModal('resetPasswordModal', false);
-            }, 700);
+            showToast(result.data.message || 'Đã đặt lại mật khẩu!', 'success');
+            resetPasswordModal.hide();
         } else {
-            showToast(result.data.error || 'Lỗi đặt lại mật khẩu.', 'danger');
-            if (btnConfirm) {
-                btnConfirm.disabled = false;
-                btnConfirm.classList.remove('disabled');
-            }
+            showToast(result.data.error || 'Lỗi đặt lại mật khẩu', 'danger');
+        }
+    });
+
+    // ====================================================================
+    // 5. BACKUP MAILBOX (.tgz)
+    // ====================================================================
+    window.downloadBackup = function(email) {
+        const domainId = domainSelect.value;
+        if (!domainId) {
+            showToast('Vui lòng chọn tên miền trước', 'warning');
+            return;
+        }
+        if (!confirm(`Tải file backup (.tgz) cho hộp thư ${email}?\nFile có thể khá lớn tùy dung lượng đã dùng.`)) {
+            return;
         }
 
-    } catch (err) {
-        console.error('Error resetting password:', err);
-        showToast('Lỗi kết nối. Vui lòng thử lại.', 'danger');
-        if (btnConfirm) {
-            btnConfirm.disabled = false;
-            btnConfirm.classList.remove('disabled');
-        }
+        const params = new URLSearchParams({
+            domain_id: domainId,
+            email: email,
+        });
+        // Điều hướng trực tiếp tới endpoint stream file -- để browser tự xử lý
+        // download (Content-Disposition: attachment), không qua fetchJSON vì
+        // response là binary stream, không phải JSON.
+        window.location.href = `${API_BACKUP}?${params}`;
+    };
+
+    // ====================================================================
+    // UTILITIES
+    // ====================================================================
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
-}
 
-// ============================================================================
-// 4. BACKUP - Tải file backup .tgz
-// ============================================================================
-
-async function downloadBackup(domainId, email, btnElement) {
-    if (!confirm(`Tải backup cho ${email}?\n\nFile có thể lớn và mất thời gian.`)) {
-        return;
+    function escapeAttr(str) {
+        if (!str) return '';
+        return str.replace(/'/g, "\\'");
     }
-
-    if (btnElement) {
-        btnElement.disabled = true;
-        btnElement.classList.add('disabled');
-    }
-
-    try {
-        // Dùng form submit để tải file (thay vì fetch + blob)
-        const form = document.createElement('form');
-        form.method = 'GET';
-        form.action = '/soap/api/mailbox/backup/';
-
-        const inputDomain = document.createElement('input');
-        inputDomain.type = 'hidden';
-        inputDomain.name = 'domain_id';
-        inputDomain.value = domainId;
-
-        const inputEmail = document.createElement('input');
-        inputEmail.type = 'hidden';
-        inputEmail.name = 'email';
-        inputEmail.value = email;
-
-        form.appendChild(inputDomain);
-        form.appendChild(inputEmail);
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
-
-        showToast('Đang tải backup...', 'info');
-
-    } catch (err) {
-        console.error('Error downloading backup:', err);
-        showToast('Lỗi khi tải backup.', 'danger');
-    } finally {
-        if (btnElement) {
-            btnElement.disabled = false;
-            btnElement.classList.remove('disabled');
-        }
-    }
-}
-
-// ============================================================================
-// 5. UTILITIES
-// ============================================================================
-
-/**
- * Escape HTML để chống XSS khi render dynamic content.
- */
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+});
