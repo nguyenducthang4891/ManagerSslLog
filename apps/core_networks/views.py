@@ -6,10 +6,12 @@ from django.core.exceptions import ValidationError
 from apps.core_networks.models import ZimbraServer, Domain
 from apps.core_networks.services import ZimbraServerService, DomainService
 from apps.core_networks.zimbra_soap import ZimbraAdminSoapClient
+from apps.tenants.decorators import superuser_required
 from apps.tenants.models import Tenant
 
 
 @login_required(login_url='login')
+@superuser_required
 def server_list_view(request):
     servers = ZimbraServerService.get_list(request.user)
     return render(request, 'networks/server_list.html', {'servers': servers})
