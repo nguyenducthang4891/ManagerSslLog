@@ -62,52 +62,94 @@ class ELKConnectionService:
         return Elasticsearch(cluster.get_hosts_list(), **kwargs)
 
 
+# def resolve_time_range(hours: int | None, days: int | None,
+#                         date_from: str | None = None,
+#                         date_to: str | None = None) -> tuple:
+#     """
+#     Trả về (since, now). Mặc định 24h gần nhất nếu không truyền gì.
+#
+#     ⭐ THÊM date_from/date_to (chuỗi "YYYY-MM-DD", từ <input type="date">) --
+#     ƯU TIÊN cao nhất nếu có truyền vào (filter "từ ngày - đến ngày" trên
+#     UI, giống cách trang Backup đang dùng). Khi có ít nhất 1 trong 2:
+#         - date_from: since = đầu ngày đó (00:00:00) theo timezone hiện
+#           hành của Django (settings.TIME_ZONE).
+#         - date_to: "now" trả về = CUỐI ngày đó (23:59:59.999999), để bao
+#           trùm toàn bộ ngày được chọn, không chỉ tới thời điểm hiện tại.
+#         - Nếu chỉ truyền 1 trong 2, vế còn lại fallback hợp lý: thiếu
+#           date_from -> không chặn quá khứ (since rất xa, coi như mọi log
+#           cũ đều thuộc về); thiếu date_to -> dùng thời điểm hiện tại.
+#
+#     KHÔNG truyền date_from/date_to (giữ None, None) -> hành vi CŨ giữ
+#     nguyên 100% (hours/days như trước), để không phá vỡ metric.py/audit.py
+#     đang gọi resolve_time_range(hours, days) theo signature cũ.
+#     """
+#     now = timezone.now()
+#
+#
+#     if date_from or date_to:
+#         tz = timezone.get_current_timezone()
+#         since = timezone.make_aware(datetime(1971, 1, 1), tz)
+#         until = now
+#
+#         if date_from:
+#             d = datetime.strptime(date_from, "%Y-%m-%d")
+#             since = timezone.make_aware(datetime.combine(d.date(), datetime.min.time()), tz)
+#
+#         if date_to:
+#             d = datetime.strptime(date_to, "%Y-%m-%d")
+#             until = timezone.make_aware(datetime.combine(d.date(), datetime.max.time()), tz)
+#
+#         return since, until
+#
+#     if hours:
+#         since = now - timedelta(hours=hours)
+#     elif days:
+#         since = now - timedelta(days=days)
+#     else:
+#         since = now - timedelta(hours=24)
+#     return since, now
+
+
+import pytz  # Đảm bảo đã import pytz ở đầu file
+
+
 def resolve_time_range(hours: int | None, days: int | None,
-                        date_from: str | None = None,
-                        date_to: str | None = None) -> tuple:
-    """
-    Trả về (since, now). Mặc định 24h gần nhất nếu không truyền gì.
-
-    ⭐ THÊM date_from/date_to (chuỗi "YYYY-MM-DD", từ <input type="date">) --
-    ƯU TIÊN cao nhất nếu có truyền vào (filter "từ ngày - đến ngày" trên
-    UI, giống cách trang Backup đang dùng). Khi có ít nhất 1 trong 2:
-        - date_from: since = đầu ngày đó (00:00:00) theo timezone hiện
-          hành của Django (settings.TIME_ZONE).
-        - date_to: "now" trả về = CUỐI ngày đó (23:59:59.999999), để bao
-          trùm toàn bộ ngày được chọn, không chỉ tới thời điểm hiện tại.
-        - Nếu chỉ truyền 1 trong 2, vế còn lại fallback hợp lý: thiếu
-          date_from -> không chặn quá khứ (since rất xa, coi như mọi log
-          cũ đều thuộc về); thiếu date_to -> dùng thời điểm hiện tại.
-
-    KHÔNG truyền date_from/date_to (giữ None, None) -> hành vi CŨ giữ
-    nguyên 100% (hours/days như trước), để không phá vỡ metric.py/audit.py
-    đang gọi resolve_time_range(hours, days) theo signature cũ.
-    """
-    now = timezone.now()
+                       date_from: str | None = None,
+                       date_to: str | None = None) -> tuple:
+    now = timezone.now()  # Django luôn trả về dạng UTC aware nếu USE_TZ=True
 
     if date_from or date_to:
-        tz = timezone.get_current_timezone()
-        since = timezone.make_aware(datetime(1971, 1, 1), tz)
-        until = now
+        tz = timezone.get_current_timezone()  # Lấy múi giờ hệ thống (ví dụ Asia/Ho_Chi_Minh)
+
+        # Fallback về mặc định
+        since = timezone.make_aware(datetime(1971, 1, 1), tz).astimezone(pytz.utc)
+        until = now.astimezone(pytz.utc)
 
         if date_from:
             d = datetime.strptime(date_from, "%Y-%m-%d")
-            since = timezone.make_aware(datetime.combine(d.date(), datetime.min.time()), tz)
+            # 1. Tạo aware datetime theo múi giờ Việt Nam (00:00:00)
+            since_local = timezone.make_aware(datetime.combine(d.date(), datetime.min.time()), tz)
+            # 2. Ép buộc chuyển đổi sang giờ UTC gốc chuẩn để truy vấn ES
+            since = since_local.astimezone(pytz.utc)
 
         if date_to:
             d = datetime.strptime(date_to, "%Y-%m-%d")
-            until = timezone.make_aware(datetime.combine(d.date(), datetime.max.time()), tz)
+            # 1. Tạo aware datetime theo múi giờ Việt Nam (23:59:59)
+            until_local = timezone.make_aware(datetime.combine(d.date(), datetime.max.time()), tz)
+            # 2. Ép buộc chuyển đổi sang giờ UTC gốc chuẩn để truy vấn ES
+            until = until_local.astimezone(pytz.utc)
 
         return since, until
 
+    # Các điều kiện hours / days giữ nguyên
     if hours:
         since = now - timedelta(hours=hours)
     elif days:
         since = now - timedelta(days=days)
     else:
         since = now - timedelta(hours=24)
-    return since, now
 
+    return since.astimezone(pytz.utc), now.astimezone(pytz.utc)
 
 def require_tenant_scope(user):
     """Chặn sớm nếu user không thuộc tổ chức nào và không phải superuser."""
