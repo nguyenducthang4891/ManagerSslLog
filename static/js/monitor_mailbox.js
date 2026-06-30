@@ -80,6 +80,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    const btnExportMailbox = document.getElementById('btnExportMailboxExcel');
+    if (btnExportMailbox) {
+        btnExportMailbox.addEventListener('click', exportMailboxToExcel);
+    }
 });
 
 /**
@@ -357,3 +361,79 @@ async function openMailboxOriginLog(docId) {
 
 function escapeHtmlTextMailbox(str) { return str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
 function escapeAttrMailbox(str) { return str ? String(str).replace(/'/g, "\\'") : ''; }
+
+// Cho mailbox
+const API_EXPORT_MAILBOX_URL = '/monitor/api/mailbox/export/excel/';
+
+
+async function exportMailboxToExcel() {
+    if (!hasActiveScope()) {
+        alert('Vui lòng chọn Tổ chức (Tenant) trước khi xuất Excel.');
+        return;
+    }
+
+    const btn = document.getElementById('btnExportMailboxExcel');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Đang xuất...';
+
+    try {
+        let url = API_EXPORT_MAILBOX_URL + '?';
+
+        const dateFrom = document.getElementById('mailboxDateFrom').value;
+        const dateTo = document.getElementById('mailboxDateTo').value;
+        const direction = document.getElementById('mailboxDirection').value;
+        const status = document.getElementById('mailboxStatus').value;
+        const email = document.getElementById('mailboxSearchEmail').value;
+
+        if (dateFrom) url += `date_from=${encodeURIComponent(dateFrom)}&`;
+        if (dateTo) url += `date_to=${encodeURIComponent(dateTo)}&`;
+        if (!dateFrom && !dateTo) url += 'hours=24&';
+        if (direction) url += `mail_direction=${encodeURIComponent(direction)}&`;
+        if (status) url += `status=${encodeURIComponent(status)}&`;
+        if (email) url += `search_email=${encodeURIComponent(email)}&`;
+        if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) {
+            url += `tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}&`;
+        }
+
+        url = url.replace(/&$/, '');
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+        const blob = await response.blob();
+        downloadBlob(blob, getDefaultFilename('mailbox_logs'));
+
+    } catch (error) {
+        alert(`Lỗi xuất Excel: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+function hasActiveScope() {
+    if (!window.MONITOR_IS_SUPERUSER) return true;
+    return !!window.MONITOR_TENANT_ID;
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function getDefaultFilename(prefix) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    const minute = String(now.getMinutes()).padStart(2, '0');
+    return `${prefix}_${year}${month}${day}_${hour}${minute}.xlsx`;
+}

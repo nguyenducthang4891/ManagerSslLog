@@ -1,3 +1,5 @@
+from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+from django.db.models import Q
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
@@ -13,9 +15,45 @@ from apps.ssl_manager.services.ssl_checker import SSLCheckService
 
 @login_required(login_url='login')
 def cert_list_view(request):
+    """
+    🆕 THÊM: Tìm kiếm + Phân trang
+    - GET params: ?search=keyword&page=2&status=deployed
+    """
+    # Lấy danh sách chứng chỉ
     certs = SSLLifecycleService.get_list(request.user)
     domains = DomainService.get_list(request.user)
-    return render(request, 'ssl/cert_list.html', {'certs': certs, 'domains': domains})
+
+    # ⭐ TÌMKIẾM - theo tên hoặc domain
+    search_query = request.GET.get('search', '').strip()
+    status_filter = request.GET.get('status', '').strip()
+
+    if search_query:
+        certs = certs.filter(
+            Q(name__icontains=search_query) |  # Tìm theo tên chứng chỉ
+            Q(domain__name__icontains=search_query) |  # Tìm theo domain
+            Q(issuer__icontains=search_query)  # Tìm theo issuer
+        )
+
+    if status_filter:
+        certs = certs.filter(status=status_filter)
+
+    # ⭐ PHÂN TRANG - 10 chứng chỉ/trang
+    paginator = Paginator(certs, 10)  # 10 items per page
+    page = request.GET.get('page', 1)
+
+    try:
+        certs = paginator.page(page)
+    except PageNotAnInteger:
+        certs = paginator.page(1)
+    except EmptyPage:
+        certs = paginator.page(paginator.num_pages)
+
+    return render(request, 'ssl/cert_list.html', {
+        'certs': certs,
+        'domains': domains,
+        'search_query': search_query,  # Để giữ giá trị input
+        'status_filter': status_filter,  # Để giữ giá trị select
+    })
 
 
 @login_required(login_url='login')

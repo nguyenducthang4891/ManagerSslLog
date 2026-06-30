@@ -2,13 +2,70 @@
 {% load static %}
 {% block title %}Kho chứng chỉ SSL{% endblock %}
 {% block content %}
+
+<!-- ⭐ HEADER -->
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="h4 fw-bold text-dark mb-0"><i class="bi bi-patch-check me-1"></i>Kho lưu trữ chứng chỉ SSL</h2>
+    <h2 class="h4 fw-bold text-dark mb-0">
+        <i class="bi bi-patch-check me-1"></i>Kho lưu trữ chứng chỉ SSL
+    </h2>
     <button id="btn-open-upload-modal" class="btn btn-success">
         <i class="bi bi-cloud-upload me-1"></i>Tải lên chứng chỉ mới
     </button>
 </div>
 
+<!-- ⭐ THANH TÌM KIẾM & LỌC -->
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body">
+        <form method="GET" id="search-form" class="row g-3">
+            <!-- Tìm kiếm từ khóa -->
+            <div class="col-md-4">
+                <label class="form-label small fw-semibold">Tìm kiếm</label>
+                <input
+                    type="text"
+                    name="search"
+                    class="form-control"
+                    placeholder="Tên cert / Domain / Issuer..."
+                    value="{{ search_query }}"
+                >
+            </div>
+
+            <!-- Lọc theo trạng thái -->
+            <div class="col-md-4">
+                <label class="form-label small fw-semibold">Trạng thái</label>
+                <select name="status" class="form-select">
+                    <option value="">-- Tất cả --</option>
+                    <option value="valid" {% if status_filter == 'valid' %}selected{% endif %}>
+                        ✅ Hợp lệ
+                    </option>
+                    <option value="deployed" {% if status_filter == 'deployed' %}selected{% endif %}>
+                        🚀 Đã triển khai
+                    </option>
+                    <option value="deploying" {% if status_filter == 'deploying' %}selected{% endif %}>
+                        ⏳ Đang triển khai
+                    </option>
+                    <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>
+                        ❌ Lỗi
+                    </option>
+                    <option value="invalid" {% if status_filter == 'invalid' %}selected{% endif %}>
+                        ⚠️ Không hợp lệ
+                    </option>
+                </select>
+            </div>
+
+            <!-- Nút tìm kiếm -->
+            <div class="col-md-4 d-flex align-items-end gap-2">
+                <button type="submit" class="btn btn-primary flex-grow-1">
+                    <i class="bi bi-search me-1"></i>Tìm kiếm
+                </button>
+                <a href="{% url 'cert_list' %}" class="btn btn-secondary">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ⭐ BẢNG CHỨNG CHỈ -->
 <div class="card shadow-sm border-0">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
@@ -45,13 +102,92 @@
                     </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="6" class="text-center text-muted py-4">Chưa tải lên chứng chỉ SSL nào.</td></tr>
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        <i class="bi bi-inbox"></i> Không tìm thấy chứng chỉ nào.
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
 
+<!-- ⭐ PHÂN TRANG -->
+{% if certs.has_other_pages %}
+<nav aria-label="Pagination" class="mt-4">
+    <ul class="pagination justify-content-center">
+        <!-- Previous -->
+        {% if certs.has_previous %}
+        <li class="page-item">
+            <a class="page-link" href="?page=1&search={{ search_query }}&status={{ status_filter }}">
+                <i class="bi bi-chevron-double-left"></i>
+            </a>
+        </li>
+        <li class="page-item">
+            <a class="page-link" href="?page={{ certs.previous_page_number }}&search={{ search_query }}&status={{ status_filter }}">
+                Trước
+            </a>
+        </li>
+        {% else %}
+        <li class="page-item disabled">
+            <span class="page-link"><i class="bi bi-chevron-double-left"></i></span>
+        </li>
+        <li class="page-item disabled">
+            <span class="page-link">Trước</span>
+        </li>
+        {% endif %}
+
+        <!-- Page Numbers -->
+        {% for num in certs.paginator.page_range %}
+            {% if certs.number == num %}
+            <li class="page-item active" aria-current="page">
+                <span class="page-link">
+                    {{ num }}
+                    <span class="visually-hidden">(current)</span>
+                </span>
+            </li>
+            {% elif num > certs.number|add:'-3' and num < certs.number|add:'3' %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ num }}&search={{ search_query }}&status={{ status_filter }}">
+                    {{ num }}
+                </a>
+            </li>
+            {% endif %}
+        {% endfor %}
+
+        <!-- Next -->
+        {% if certs.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ certs.next_page_number }}&search={{ search_query }}&status={{ status_filter }}">
+                Tiếp
+            </a>
+        </li>
+        <li class="page-item">
+            <a class="page-link" href="?page={{ certs.paginator.num_pages }}&search={{ search_query }}&status={{ status_filter }}">
+                <i class="bi bi-chevron-double-right"></i>
+            </a>
+        </li>
+        {% else %}
+        <li class="page-item disabled">
+            <span class="page-link">Tiếp</span>
+        </li>
+        <li class="page-item disabled">
+            <span class="page-link"><i class="bi bi-chevron-double-right"></i></span>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+<!-- Hiển thị thông tin phân trang -->
+<div class="text-center text-muted small mt-3">
+    Hiển thị <strong>{{ certs.start_index }}</strong> đến
+    <strong>{{ certs.end_index }}</strong>
+    trong tổng số <strong>{{ certs.paginator.count }}</strong> chứng chỉ
+</div>
+
+<!-- ⭐ MODAL UPLOAD (Giữ nguyên) -->
 <div id="ssl-modal" class="modal fade" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -101,6 +237,7 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}

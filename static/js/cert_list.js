@@ -15,6 +15,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ⭐ XỬ LÝ TÌM KIẾM - Focus vào input nếu có giá trị
+    const searchForm = document.getElementById('search-form');
+    if (searchForm) {
+        const searchInput = searchForm.querySelector('input[name="search"]');
+
+        // Auto-focus vào input nếu đang có giá trị tìm kiếm
+        if (searchInput && searchInput.value) {
+            searchInput.focus();
+        }
+
+        // Clear search khi nhấn nút reset
+        const resetBtn = searchForm.querySelector('.btn-secondary');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                searchForm.reset();
+                window.location.href = '{% url "cert_list" %}';
+            });
+        }
+    }
+
     // --- XỬ LÝ SUBMIT UPLOAD CHỨNG CHỈ TẬP TRUNG ---
     const sslForm = document.getElementById('ssl-form');
     if (sslForm) {

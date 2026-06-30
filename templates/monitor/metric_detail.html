@@ -2,49 +2,55 @@
 {% block title %}Nhật ký: {{ hostname }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="fw-bold mb-0"><i class="bi bi-server me-2"></i>Nhật ký chi tiết: {{ hostname }}</h4>
-        <small class="text-muted">
-            Tổ chức: <strong>{{ tenant_name }}</strong> -- Xem lịch sử chuỗi vết log đẩy từ Agent về hệ thống Elasticsearch
-        </small>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="fw-bold mb-0"><i class="bi bi-server me-2"></i>Nhật ký chi tiết: {{ hostname }}</h4>
+            <small class="text-muted">
+                Tổ chức: <strong>{{ tenant_name }}</strong> -- Xem lịch sử chuỗi vết log đẩy từ Agent về hệ thống
+                Elasticsearch
+            </small>
+        </div>
+        <a href="{% url 'monitor_metric' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Quay lại tổng quan
+        </a>
+        <button class="btn btn-success btn-sm shadow-sm" id="btnExportMetricExcel" title="Xuất báo cáo Excel">
+            <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+        </button>
     </div>
-    <a href="{% url 'monitor_metric' %}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-left me-1"></i>Quay lại tổng quan
-    </a>
-</div>
 
-<div class="card border-0 shadow-sm mb-4 bg-light">
-    <div class="card-body py-2">
-        <div class="row g-2 align-items-center">
-            <div class="col-md-4">
-                <select class="form-select form-select-sm" id="detailHours" onchange="resetAndLoadHostDetail()">
-                    <option value="1">Lịch sử 1 giờ trước</option>
-                    <option value="6">Lịch sử 6 giờ trước</option>
-                    <option value="24" selected>Lịch sử 24 giờ trước</option>
-                    <option value="168">Lịch sử 7 ngày qua</option>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <select class="form-select form-select-sm" id="detailSeverity" onchange="resetAndLoadHostDetail()">
-                    <option value="">-- Tất cả mức độ cảnh báo --</option>
-                    <option value="ok">Bình thường (OK)</option>
-                    <option value="warning">Cảnh báo (Warning)</option>
-                    <option value="critical">Nguy cấp (Critical)</option>
-                </select>
-            </div>
-            <div class="col-md-4 text-end">
-                <button class="btn btn-sm btn-dark w-100" onclick="resetAndLoadHostDetail()"><i class="bi bi-funnel"></i> Thực hiện lọc dữ liệu</button>
+    <div class="card border-0 shadow-sm mb-4 bg-light">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <select class="form-select form-select-sm" id="detailHours" onchange="resetAndLoadHostDetail()">
+                        <option value="1">Lịch sử 1 giờ trước</option>
+                        <option value="6">Lịch sử 6 giờ trước</option>
+                        <option value="24" selected>Lịch sử 24 giờ trước</option>
+                        <option value="168">Lịch sử 7 ngày qua</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select form-select-sm" id="detailSeverity" onchange="resetAndLoadHostDetail()">
+                        <option value="">-- Tất cả mức độ cảnh báo --</option>
+                        <option value="ok">Bình thường (OK)</option>
+                        <option value="warning">Cảnh báo (Warning)</option>
+                        <option value="critical">Nguy cấp (Critical)</option>
+                    </select>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-sm btn-dark w-100" onclick="resetAndLoadHostDetail()"><i
+                            class="bi bi-funnel"></i> Thực hiện lọc dữ liệu
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light small">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light small">
                     <tr>
                         <th class="ps-3">Thời điểm nhận bản tin</th>
                         <th>CPU</th>
@@ -56,129 +62,135 @@
                         <th>Zimbra Service Down</th>
                         <th class="pe-3">Mức độ</th>
                     </tr>
-                </thead>
-                <tbody id="hostDetailLogBody" class="small">
+                    </thead>
+                    <tbody id="hostDetailLogBody" class="small">
                     </tbody>
-            </table>
+                </table>
+            </div>
         </div>
     </div>
-</div>
-<div id="hostDetailLoadFooter" class="text-center text-muted small py-3"></div>
+    <div id="hostDetailLoadFooter" class="text-center text-muted small py-3"></div>
 
-<script>
-    const HOSTNAME = "{{ hostname|escapejs }}";
-    // TENANT_ID lấy từ path param (đã validate quyền ở views_metric.host_detail_view)
-    // -- bắt buộc phải có trong URL gọi API, KHÔNG còn dùng query string nữa.
-    const TENANT_ID = {{ tenant_id }};
+    <script>
+        const HOSTNAME = "{{ hostname|escapejs }}";
+        // TENANT_ID lấy từ path param (đã validate quyền ở views_metric.host_detail_view)
+        // -- bắt buộc phải có trong URL gọi API, KHÔNG còn dùng query string nữa.
+        const TENANT_ID = {{ tenant_id }};
 
-    /**
-     * PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll) -- ES THẬT.
-     * api_host_logs giờ dùng MetricService.query_paginated() (xem
-     * services/metric.py), severity_filter được đẩy xuống ES dưới dạng
-     * range query, nên "total"/"total_pages" chính xác 100% và mỗi trang
-     * "items" CHỈ chứa bản ghi MỚI của trang đó -- ta APPEND (nối) thêm
-     * dòng vào tbody, KHÔNG render lại toàn bộ (đồng bộ đúng cơ chế với
-     * monitor_audit.js/monitor_mailbox.js).
-     */
-    const HOST_DETAIL_PAGE_SIZE = 50;
-    let hostDetailCurrentPage = 1;
-    let hostDetailTotalPages = 1;
-    let hostDetailIsLoading = false;
-    let hostDetailObserver = null;
+        /**
+         * PHÂN TRANG "TẢI THÊM KHI KÉO SCROLL" (infinite scroll) -- ES THẬT.
+         * api_host_logs giờ dùng MetricService.query_paginated() (xem
+         * services/metric.py), severity_filter được đẩy xuống ES dưới dạng
+         * range query, nên "total"/"total_pages" chính xác 100% và mỗi trang
+         * "items" CHỈ chứa bản ghi MỚI của trang đó -- ta APPEND (nối) thêm
+         * dòng vào tbody, KHÔNG render lại toàn bộ (đồng bộ đúng cơ chế với
+         * monitor_audit.js/monitor_mailbox.js).
+         */
+        const HOST_DETAIL_PAGE_SIZE = 50;
+        let hostDetailCurrentPage = 1;
+        let hostDetailTotalPages = 1;
+        let hostDetailIsLoading = false;
+        let hostDetailObserver = null;
+        const API_EXPORT_METRIC_URL = `/monitor/api/tenant/${TENANT_ID}/host/logs/export/excel/`;
 
-    document.addEventListener("DOMContentLoaded", () => {
-        setupHostDetailScrollObserver();
-        resetAndLoadHostDetail();
-    });
 
-    function setupHostDetailScrollObserver() {
-        const tbody = document.getElementById('hostDetailLogBody');
-        if (!tbody) return;
-
-        hostDetailObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) loadMoreHostDetail();
-            });
-        }, { root: null, rootMargin: '0px 0px 200px 0px', threshold: 0 });
-    }
-
-    function ensureHostDetailSentinel() {
-        const tbody = document.getElementById('hostDetailLogBody');
-        let sentinel = document.getElementById('hostDetailScrollSentinel');
-        if (sentinel) sentinel.remove();
-
-        sentinel = document.createElement('tr');
-        sentinel.id = 'hostDetailScrollSentinel';
-        sentinel.innerHTML = '<td colspan="9" style="height:1px;padding:0;border:0;"></td>';
-        tbody.appendChild(sentinel);
-
-        if (hostDetailObserver) hostDetailObserver.observe(sentinel);
-    }
-
-    /** Đổi filter (giờ/severity) -- quay về trang 1, xóa bảng, tải lại từ đầu. */
-    function resetAndLoadHostDetail() {
-        hostDetailCurrentPage = 1;
-        hostDetailTotalPages = 1;
-        const tbody = document.getElementById('hostDetailLogBody');
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
-        loadHostDetailPage(true);
-    }
-
-    /** Observer gọi hàm này khi cuộn gần cuối bảng -- chỉ tải tiếp nếu còn trang và không đang tải. */
-    function loadMoreHostDetail() {
-        if (hostDetailIsLoading) return;
-        if (hostDetailCurrentPage >= hostDetailTotalPages) return; // đã tải hết
-        hostDetailCurrentPage += 1;
-        loadHostDetailPage(false);
-    }
-
-    /**
-     * Định dạng tốc độ mạng tức thời (bits/giây) thành Mbps/Kbps -- giống
-     * formatBitrate() trong monitor_metric.js. Trang này độc lập (không
-     * load monitor_metric.js) nên định nghĩa lại tại đây.
-     */
-    function formatBitrate(bps) {
-        if (bps === undefined || bps === null || isNaN(bps)) return '-';
-        const num = Number(bps);
-        if (num >= 1000 ** 3) return `${(num / 1000 ** 3).toFixed(2)} Gbps`;
-        if (num >= 1000 ** 2) return `${(num / 1000 ** 2).toFixed(2)} Mbps`;
-        if (num >= 1000) return `${(num / 1000).toFixed(2)} Kbps`;
-        return `${num} bps`;
-    }
-
-    /**
-     * Convert chuỗi timestamp UTC sang giờ Việt Nam (GMT+7) -- ÉP CỨNG
-     * timeZone 'Asia/Ho_Chi_Minh', đồng bộ cách làm với monitor_audit.js/
-     * monitor_mailbox.js/monitor_backup.js/monitor_metric.js (xem giải
-     * thích chi tiết trong formatVNTimeAudit() của monitor_audit.js).
-     */
-    function formatVNTimeHostDetail(utcTimestamp) {
-        if (!utcTimestamp) return '-';
-        const date = new Date(utcTimestamp);
-        if (isNaN(date.getTime())) return '-';
-
-        const formatter = new Intl.DateTimeFormat('vi-VN', {
-            timeZone: 'Asia/Ho_Chi_Minh',
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false,
+        document.addEventListener("DOMContentLoaded", () => {
+            setupHostDetailScrollObserver();
+            resetAndLoadHostDetail();
+            const btnExport = document.getElementById('btnExportMetricExcel');
+            if (btnExport) {
+                btnExport.addEventListener('click', exportMetricToExcel);
+            }
         });
-        const parts = formatter.formatToParts(date);
-        const get = (type) => parts.find(p => p.type === type)?.value || '';
-        return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
-    }
 
-    function hostDetailRowHtml(item) {
-        let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
-        let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
-            ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
-            : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
+        function setupHostDetailScrollObserver() {
+            const tbody = document.getElementById('hostDetailLogBody');
+            if (!tbody) return;
 
-        let rxRate = formatBitrate(item.net_rx_bps);
-        let txRate = formatBitrate(item.net_tx_bps);
-        let t = formatVNTimeHostDetail(item.timestamp);
+            hostDetailObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) loadMoreHostDetail();
+                });
+            }, {root: null, rootMargin: '0px 0px 200px 0px', threshold: 0});
+        }
 
-        return `
+        function ensureHostDetailSentinel() {
+            const tbody = document.getElementById('hostDetailLogBody');
+            let sentinel = document.getElementById('hostDetailScrollSentinel');
+            if (sentinel) sentinel.remove();
+
+            sentinel = document.createElement('tr');
+            sentinel.id = 'hostDetailScrollSentinel';
+            sentinel.innerHTML = '<td colspan="9" style="height:1px;padding:0;border:0;"></td>';
+            tbody.appendChild(sentinel);
+
+            if (hostDetailObserver) hostDetailObserver.observe(sentinel);
+        }
+
+        /** Đổi filter (giờ/severity) -- quay về trang 1, xóa bảng, tải lại từ đầu. */
+        function resetAndLoadHostDetail() {
+            hostDetailCurrentPage = 1;
+            hostDetailTotalPages = 1;
+            const tbody = document.getElementById('hostDetailLogBody');
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Đang truy xuất dữ liệu lịch sử từ Elasticsearch Cluster...</td></tr>`;
+            loadHostDetailPage(true);
+        }
+
+        /** Observer gọi hàm này khi cuộn gần cuối bảng -- chỉ tải tiếp nếu còn trang và không đang tải. */
+        function loadMoreHostDetail() {
+            if (hostDetailIsLoading) return;
+            if (hostDetailCurrentPage >= hostDetailTotalPages) return; // đã tải hết
+            hostDetailCurrentPage += 1;
+            loadHostDetailPage(false);
+        }
+
+        /**
+         * Định dạng tốc độ mạng tức thời (bits/giây) thành Mbps/Kbps -- giống
+         * formatBitrate() trong monitor_metric.js. Trang này độc lập (không
+         * load monitor_metric.js) nên định nghĩa lại tại đây.
+         */
+        function formatBitrate(bps) {
+            if (bps === undefined || bps === null || isNaN(bps)) return '-';
+            const num = Number(bps);
+            if (num >= 1000 ** 3) return `${(num / 1000 ** 3).toFixed(2)} Gbps`;
+            if (num >= 1000 ** 2) return `${(num / 1000 ** 2).toFixed(2)} Mbps`;
+            if (num >= 1000) return `${(num / 1000).toFixed(2)} Kbps`;
+            return `${num} bps`;
+        }
+
+        /**
+         * Convert chuỗi timestamp UTC sang giờ Việt Nam (GMT+7) -- ÉP CỨNG
+         * timeZone 'Asia/Ho_Chi_Minh', đồng bộ cách làm với monitor_audit.js/
+         * monitor_mailbox.js/monitor_backup.js/monitor_metric.js (xem giải
+         * thích chi tiết trong formatVNTimeAudit() của monitor_audit.js).
+         */
+        function formatVNTimeHostDetail(utcTimestamp) {
+            if (!utcTimestamp) return '-';
+            const date = new Date(utcTimestamp);
+            if (isNaN(date.getTime())) return '-';
+
+            const formatter = new Intl.DateTimeFormat('vi-VN', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false,
+            });
+            const parts = formatter.formatToParts(date);
+            const get = (type) => parts.find(p => p.type === type)?.value || '';
+            return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+        }
+
+        function hostDetailRowHtml(item) {
+            let badge = item.severity === 'critical' ? 'bg-danger' : (item.severity === 'warning' ? 'bg-warning text-dark' : 'bg-success');
+            let downList = (item.zimbra_not_running && item.zimbra_not_running.length > 0)
+                ? `<span class="text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>${item.zimbra_not_running.join(', ')}</span>`
+                : `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Mọi dịch vụ hoạt động tốt</span>`;
+
+            let rxRate = formatBitrate(item.net_rx_bps);
+            let txRate = formatBitrate(item.net_tx_bps);
+            let t = formatVNTimeHostDetail(item.timestamp);
+
+            return `
             <tr>
                 <td class="ps-3 font-monospace fw-bold text-secondary">${t}</td>
                 <td class="fw-semibold">${item.cpu}%</td>
@@ -191,96 +203,134 @@
                 <td class="pe-3"><span class="badge ${badge} text-uppercase font-monospace">${item.severity}</span></td>
             </tr>
         `;
-    }
+        }
 
-    /**
-     * isFirstLoad=true: xóa sạch tbody rồi render items từ đầu. isFirstLoad=
-     * false: giữ nguyên dòng đã có, CHÈN thêm dòng mới vào TRƯỚC dòng
-     * sentinel (luôn phải nằm cuối cùng để observer tiếp tục theo dõi
-     * đúng vị trí) -- giống appendMailboxRows()/appendAuditRows().
-     */
-    function appendHostDetailRows(items, isFirstLoad) {
-        const tbody = document.getElementById('hostDetailLogBody');
+        /**
+         * isFirstLoad=true: xóa sạch tbody rồi render items từ đầu. isFirstLoad=
+         * false: giữ nguyên dòng đã có, CHÈN thêm dòng mới vào TRƯỚC dòng
+         * sentinel (luôn phải nằm cuối cùng để observer tiếp tục theo dõi
+         * đúng vị trí) -- giống appendMailboxRows()/appendAuditRows().
+         */
+        function appendHostDetailRows(items, isFirstLoad) {
+            const tbody = document.getElementById('hostDetailLogBody');
 
-        if (isFirstLoad) {
-            if (items.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
+            if (isFirstLoad) {
+                if (items.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Không tìm thấy bản ghi dữ liệu log nào trong khoảng thời gian này.</td></tr>`;
+                    ensureHostDetailSentinel();
+                    return;
+                }
+                tbody.innerHTML = items.map(hostDetailRowHtml).join('');
                 ensureHostDetailSentinel();
                 return;
             }
-            tbody.innerHTML = items.map(hostDetailRowHtml).join('');
-            ensureHostDetailSentinel();
-            return;
+
+            if (items.length === 0) return;
+
+            const sentinel = document.getElementById('hostDetailScrollSentinel');
+            const rowsHtml = items.map(hostDetailRowHtml).join('');
+            if (sentinel) {
+                sentinel.insertAdjacentHTML('beforebegin', rowsHtml);
+            } else {
+                tbody.insertAdjacentHTML('beforeend', rowsHtml);
+                ensureHostDetailSentinel();
+            }
         }
 
-        if (items.length === 0) return;
+        function renderHostDetailFooter(state, total, errorMessage) {
+            const footer = document.getElementById('hostDetailLoadFooter');
+            if (!footer) return;
 
-        const sentinel = document.getElementById('hostDetailScrollSentinel');
-        const rowsHtml = items.map(hostDetailRowHtml).join('');
-        if (sentinel) {
-            sentinel.insertAdjacentHTML('beforebegin', rowsHtml);
-        } else {
-            tbody.insertAdjacentHTML('beforeend', rowsHtml);
-            ensureHostDetailSentinel();
+            if (state === 'loading') {
+                footer.innerHTML = `<div class="spinner-border spinner-border-sm me-2"></div>Đang tải thêm...`;
+            } else if (state === 'error') {
+                footer.innerHTML = `<span class="text-danger">${errorMessage || 'Lỗi tải dữ liệu.'}</span>`;
+            } else if (hostDetailCurrentPage >= hostDetailTotalPages) {
+                footer.innerHTML = total > 0 ? `Đã hiển thị tất cả ${total} bản ghi.` : '';
+            } else {
+                footer.innerHTML = `<small>Kéo xuống để tải thêm...</small>`;
+            }
         }
-    }
 
-    function renderHostDetailFooter(state, total, errorMessage) {
-        const footer = document.getElementById('hostDetailLoadFooter');
-        if (!footer) return;
+        /**
+         * isFirstLoad=true: trang 1, tbody đang được XÓA SẠCH và render lại từ
+         * đầu. isFirstLoad=false: trang kế tiếp do observer kích hoạt, NỐI
+         * thêm dòng vào tbody hiện có.
+         */
+        async function loadHostDetailPage(isFirstLoad) {
+            const hours = document.getElementById('detailHours').value;
+            const severity = document.getElementById('detailSeverity').value;
 
-        if (state === 'loading') {
-            footer.innerHTML = `<div class="spinner-border spinner-border-sm me-2"></div>Đang tải thêm...`;
-        } else if (state === 'error') {
-            footer.innerHTML = `<span class="text-danger">${errorMessage || 'Lỗi tải dữ liệu.'}</span>`;
-        } else if (hostDetailCurrentPage >= hostDetailTotalPages) {
-            footer.innerHTML = total > 0 ? `Đã hiển thị tất cả ${total} bản ghi.` : '';
-        } else {
-            footer.innerHTML = `<small>Kéo xuống để tải thêm...</small>`;
-        }
-    }
+            hostDetailIsLoading = true;
+            renderHostDetailFooter('loading');
 
-    /**
-     * isFirstLoad=true: trang 1, tbody đang được XÓA SẠCH và render lại từ
-     * đầu. isFirstLoad=false: trang kế tiếp do observer kích hoạt, NỐI
-     * thêm dòng vào tbody hiện có.
-     */
-    async function loadHostDetailPage(isFirstLoad) {
-        const hours = document.getElementById('detailHours').value;
-        const severity = document.getElementById('detailSeverity').value;
+            let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}&page=${hostDetailCurrentPage}&page_size=${HOST_DETAIL_PAGE_SIZE}`;
+            if (severity) url += `&severity=${severity}`;
 
-        hostDetailIsLoading = true;
-        renderHostDetailFooter('loading');
+            try {
+                const res = await fetch(url).then(r => r.json());
 
-        let url = `/monitor/api/tenant/${TENANT_ID}/host/logs/?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}&page=${hostDetailCurrentPage}&page_size=${HOST_DETAIL_PAGE_SIZE}`;
-        if (severity) url += `&severity=${severity}`;
+                if (res.error) {
+                    const tbody = document.getElementById('hostDetailLogBody');
+                    if (isFirstLoad) {
+                        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
+                    }
+                    renderHostDetailFooter('error', 0, res.error);
+                    if (!isFirstLoad) hostDetailCurrentPage -= 1;
+                    return;
+                }
 
-        try {
-            const res = await fetch(url).then(r => r.json());
-
-            if (res.error) {
+                hostDetailTotalPages = res.total_pages || 1;
+                appendHostDetailRows(res.items || [], isFirstLoad);
+                renderHostDetailFooter('idle', res.total || 0);
+            } catch (e) {
                 const tbody = document.getElementById('hostDetailLogBody');
                 if (isFirstLoad) {
-                    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">${res.error}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
                 }
-                renderHostDetailFooter('error', 0, res.error);
+                renderHostDetailFooter('error', 0, 'Lỗi hệ thống không thể nạp tệp dữ liệu.');
                 if (!isFirstLoad) hostDetailCurrentPage -= 1;
-                return;
+            } finally {
+                hostDetailIsLoading = false;
             }
-
-            hostDetailTotalPages = res.total_pages || 1;
-            appendHostDetailRows(res.items || [], isFirstLoad);
-            renderHostDetailFooter('idle', res.total || 0);
-        } catch (e) {
-            const tbody = document.getElementById('hostDetailLogBody');
-            if (isFirstLoad) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-4">Lỗi hệ thống không thể nạp tệp dữ liệu.</td></tr>`;
-            }
-            renderHostDetailFooter('error', 0, 'Lỗi hệ thống không thể nạp tệp dữ liệu.');
-            if (!isFirstLoad) hostDetailCurrentPage -= 1;
-        } finally {
-            hostDetailIsLoading = false;
         }
-    }
-</script>
+
+        async function exportMetricToExcel() {
+            const btn = document.getElementById('btnExportMetricExcel');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Đang xuất...';
+
+            try {
+                const hours = document.getElementById('detailHours').value;
+                const severity = document.getElementById('detailSeverity').value;
+
+                let url = `${API_EXPORT_METRIC_URL}?hostname=${encodeURIComponent(HOSTNAME)}&hours=${hours}`;
+                if (severity) url += `&severity=${severity}`;
+
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+                const blob = await response.blob();
+                downloadMetricBlob(blob, `metric_logs_${HOSTNAME}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            } catch (error) {
+                alert(`Lỗi xuất Excel: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+
+        function downloadMetricBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
 {% endblock %}

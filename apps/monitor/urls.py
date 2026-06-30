@@ -69,3 +69,11 @@ urlpatterns += [
     path('api/tenant/<int:tenant_id>/backup/<str:doc_id>/',
          views_backup.api_backup_log_detail, name='api_backup_log_detail'),
 ]
+
+urlpatterns += [
+path('api/audit/export/excel/', views_audit.api_export_audit_excel, name='api_export_audit_excel'),  # ⭐ THÊM
+path('api/mailbox/export/excel/', views_mailbox.api_export_mailbox_excel, name='api_export_mailbox_excel'),
+path('api/backup/export/excel/', views_backup.api_export_backup_excel, name='api_export_backup_excel'),
+path('api/tenant/<int:tenant_id>/host/logs/export/excel/', views_metric.api_export_metric_excel, name='api_export_metric_excel'),
+
+]

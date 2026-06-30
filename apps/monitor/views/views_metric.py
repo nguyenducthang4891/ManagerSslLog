@@ -21,7 +21,7 @@ THAY ĐỔI CHÍNH so với hành vi gốc suy luận được:
        services/base.py:get_effective_tenant).
 """
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.shortcuts import render
 from django.core.exceptions import ValidationError
 
@@ -30,7 +30,7 @@ from apps.tenants.models import Tenant
 from .view_shared import (
     _parse_int, _resolve_tenant_from_request, _resolve_tenant_from_path,
 )
-
+from ..services.export import ExcelExportService
 
 
 @login_required
@@ -171,3 +171,53 @@ def api_host_logs(request, tenant_id):
         return JsonResponse(data)
     except ValidationError as e:
         return JsonResponse({"error": str(e)}, status=400)
+
+@login_required
+def api_export_metric_excel(request, tenant_id):
+    """
+    API xuất danh sách metric logs (chi tiết host) sang file Excel.
+    Query params: hostname, hours, severity, tenant_id (path).
+    """
+    hostname = request.GET.get('hostname')
+    if not hostname:
+        return JsonResponse({"error": "Thiếu tham số hostname."}, status=400)
+
+    try:
+        tenant = _resolve_tenant_from_path(request, tenant_id)
+    except PermissionError as e:
+        return JsonResponse({"error": str(e)}, status=403)
+    except ValidationError as e:
+        return JsonResponse({"error": str(e)}, status=404)
+
+    hours = _parse_int(request.GET.get('hours'), default=24)
+    severity = request.GET.get('severity') or None
+
+    try:
+        # Lấy tất cả bản ghi (không phân trang)
+        data = MetricService.query_paginated(
+            user=request.user,
+            tenant=tenant,
+            hours=hours,
+            hostname=hostname.strip().lower(),
+            severity_filter=severity,
+            page=1,
+            page_size=10000,  # Giới hạn 10k records
+        )
+
+        # Tạo file Excel
+        buffer, filename = ExcelExportService.export_metric_logs(
+            items=data.get('items', []),
+            hostname=hostname,
+            filename_prefix='metric_logs'
+        )
+
+        return FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except ValidationError as e:
+        return JsonResponse({"error": str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": f"Lỗi xuất Excel: {str(e)}"}, status=500)

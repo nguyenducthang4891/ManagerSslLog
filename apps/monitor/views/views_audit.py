@@ -14,7 +14,7 @@ PATTERN BẢO MẬT: giữ NHẤT QUÁN với views_metric.py --
       đoán/dò ID cao hơn so với xem danh sách tổng quan.
 """
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.shortcuts import render
 from django.core.exceptions import ValidationError
 
@@ -23,6 +23,7 @@ from apps.tenants.models import Tenant
 from .view_shared import (
     _parse_int, _resolve_tenant_from_request, _resolve_tenant_from_path,
 )
+from ..services.export import ExcelExportService
 
 
 @login_required
@@ -36,6 +37,60 @@ def audit_list(request):
         context['tenant_list'] = Tenant.objects.order_by('name')
 
     return render(request, 'monitor/audit.html', context)
+
+
+@login_required
+def api_export_audit_excel(request):
+    """
+    API xuất danh sách audit logs sang file Excel.
+    Query params: giống api_query_audit (hours, days, date_from, date_to,
+    action_category, keyword, tenant_id) -- KHÔNG có phân trang, lấy TẤT CẢ
+    bản ghi khớp điều kiện (up to 10,000 records mặc định để khỏi timeout).
+    """
+    tenant, allowed = _resolve_tenant_from_request(request)
+
+    if request.user.is_superuser and not allowed:
+        return JsonResponse({"error": "Vui lòng chọn Tổ chức (Tenant)."}, status=400)
+
+    hours = _parse_int(request.GET.get('hours'))
+    days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
+    action_category = request.GET.get('action_category') or None
+    keyword = request.GET.get('keyword') or None
+
+    try:
+        # Lấy tất cả bản ghi (không phân trang)
+        data = AuditService.query(
+            user=request.user,
+            tenant=tenant,
+            hours=hours,
+            days=days,
+            date_from=date_from,
+            date_to=date_to,
+            action_category=action_category,
+            keyword=keyword,
+            page=1,
+            page_size=10000,  # Giới hạn 10k records để tránh timeout
+        )
+
+        # Tạo file Excel
+        buffer, filename = ExcelExportService.export_audit_logs(
+            items=data.get('items', []),
+            filename_prefix='audit_logs'
+        )
+
+        # Return file cho client download
+        return FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except ValidationError as e:
+        return JsonResponse({"error": str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": f"Lỗi xuất Excel: {str(e)}"}, status=500)
 
 
 @login_required

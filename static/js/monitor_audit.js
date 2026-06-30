@@ -310,3 +310,83 @@ async function openAuditOriginLog(docId) {
 
 function escapeHtmlText(str) { return str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''; }
 function escapeAttr(str) { return str ? String(str).replace(/'/g, "\\'") : ''; }
+
+// Thêm vào cuối file, trước hoặc sau các hàm hiện có
+
+const API_EXPORT_AUDIT_URL = '/monitor/api/audit/export/excel/';
+
+// ⭐ THÊM: Xử lý nút Xuất Excel
+document.addEventListener('DOMContentLoaded', () => {
+    // ... code cũ ...
+
+    const btnExportAudit = document.getElementById('btnExportAuditExcel');
+    if (btnExportAudit) {
+        btnExportAudit.addEventListener('click', exportAuditToExcel);
+    }
+});
+
+async function exportAuditToExcel() {
+    if (!hasActiveScope()) {
+        alert('Vui lòng chọn Tổ chức (Tenant) trước khi xuất Excel.');
+        return;
+    }
+
+    const btn = document.getElementById('btnExportAuditExcel');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Đang xuất...';
+
+    try {
+        let url = API_EXPORT_AUDIT_URL + '?';
+
+        const dateFrom = document.getElementById('auditDateFrom').value;
+        const dateTo = document.getElementById('auditDateTo').value;
+        const category = document.getElementById('auditActionCategory').value;
+        const keyword = document.getElementById('auditKeyword').value;
+
+        if (dateFrom) url += `date_from=${encodeURIComponent(dateFrom)}&`;
+        if (dateTo) url += `date_to=${encodeURIComponent(dateTo)}&`;
+        if (!dateFrom && !dateTo) url += 'hours=24&';
+        if (category) url += `action_category=${encodeURIComponent(category)}&`;
+        if (keyword) url += `keyword=${encodeURIComponent(keyword)}&`;
+        if (window.MONITOR_IS_SUPERUSER && window.MONITOR_TENANT_ID) {
+            url += `tenant_id=${encodeURIComponent(window.MONITOR_TENANT_ID)}&`;
+        }
+
+        // Xóa dấu & cuối cùng
+        url = url.replace(/&$/, '');
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+        const blob = await response.blob();
+        downloadBlob(blob, getDefaultFilename('audit_logs'));
+
+    } catch (error) {
+        alert(`Lỗi xuất Excel: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function getDefaultFilename(prefix) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    const minute = String(now.getMinutes()).padStart(2, '0');
+    return `${prefix}_${year}${month}${day}_${hour}${minute}.xlsx`;
+}

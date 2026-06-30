@@ -8,11 +8,17 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="fw-bold mb-0"><i class="bi bi-hdd-stack me-2"></i>Giám sát Backup Mailbox</h4>
-        <small class="text-muted">Theo dõi kết quả backup tài khoản Zimbra (Full + Incremental) -- tra cứu theo tài khoản, lọc theo loại backup và trạng thái</small>
+        <small class="text-muted">Theo dõi kết quả backup tài khoản Zimbra (Full + Incremental)</small>
     </div>
-    <button class="btn btn-primary btn-sm shadow-sm" id="btnRefreshBackup">
-        <i class="bi bi-arrow-clockwise me-1"></i>Làm mới
-    </button>
+    <!-- ⭐ THÊM: Nút Xuất Excel bên cạnh Làm mới -->
+    <div class="btn-group" role="group">
+        <button class="btn btn-primary btn-sm shadow-sm" id="btnRefreshBackup">
+            <i class="bi bi-arrow-clockwise me-1"></i>Làm mới
+        </button>
+        <button class="btn btn-success btn-sm shadow-sm" id="btnExportBackupExcel" title="Xuất báo cáo Excel">
+            <i class="bi bi-file-earmark-excel me-1"></i>Xuất Excel
+        </button>
+    </div>
 </div>
 
 {% if request.user.is_superuser %}

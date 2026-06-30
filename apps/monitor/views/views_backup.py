@@ -14,7 +14,7 @@ gian đã chọn, đúng mục đích ban đầu (xem theo ngày backup được
 tài khoản, tổng dung lượng bao nhiêu) -- xem BackupService.get_summary().
 """
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.shortcuts import render
 from django.core.exceptions import ValidationError
 
@@ -25,6 +25,7 @@ from apps.tenants.models import Tenant
 from .view_shared import (
     _parse_int, _resolve_tenant_from_request, _resolve_tenant_from_path,
 )
+from ..services.export import ExcelExportService
 
 
 @login_required
@@ -148,3 +149,57 @@ def api_backup_log_detail(request, tenant_id, doc_id):
         return JsonResponse({"error": "Không tìm thấy bản ghi log chỉ định."}, status=404)
 
     return JsonResponse(doc)
+
+@login_required
+def api_export_backup_excel(request):
+    """
+    API xuất danh sách backup logs sang file Excel.
+    Query params: giống api_query_backup (hours, days, date_from, date_to,
+    backup_mode, status, search_account, tenant_id) -- KHÔNG có phân trang,
+    lấy TẤT CẢ bản ghi khớp điều kiện (up to 10,000 records).
+    """
+    tenant, allowed = _resolve_tenant_from_request(request)
+
+    if request.user.is_superuser and not allowed:
+        return JsonResponse({"error": "Vui lòng chọn Tổ chức (Tenant)."}, status=400)
+
+    hours = _parse_int(request.GET.get('hours'))
+    days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
+    backup_mode = request.GET.get('backup_mode') or None
+    status = request.GET.get('status') or None
+    search_account = request.GET.get('search_account') or None
+
+    try:
+        # Lấy tất cả bản ghi (không phân trang)
+        data = BackupService.query(
+            user=request.user,
+            tenant=tenant,
+            hours=hours,
+            days=days,
+            date_from=date_from,
+            date_to=date_to,
+            backup_mode=backup_mode,
+            status=status,
+            search_account=search_account,
+            page=1,
+            page_size=10000,  # Giới hạn 10k records
+        )
+
+        # Tạo file Excel
+        buffer, filename = ExcelExportService.export_backup_logs(
+            items=data.get('items', []),
+            filename_prefix='backup_logs'
+        )
+
+        return FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except ValidationError as e:
+        return JsonResponse({"error": str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": f"Lỗi xuất Excel: {str(e)}"}, status=500)

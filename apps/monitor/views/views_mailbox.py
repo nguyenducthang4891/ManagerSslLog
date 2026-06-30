@@ -9,7 +9,7 @@ View cho trang Giám sát thư đi/đến (log-mailbox-*) -- dạng bảng, theo
       PATH param, validate chặt non-superuser khớp đúng tenant của họ.
 """
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.shortcuts import render
 from django.core.exceptions import ValidationError
 
@@ -20,6 +20,7 @@ from apps.tenants.models import Tenant
 from .view_shared import (
     _parse_int, _resolve_tenant_from_request, _resolve_tenant_from_path,
 )
+from ..services.export import ExcelExportService
 
 
 @login_required
@@ -34,6 +35,60 @@ def mailbox_list(request):
         context['tenant_list'] = Tenant.objects.order_by('name')
 
     return render(request, 'monitor/mailbox.html', context)
+
+
+@login_required
+def api_export_mailbox_excel(request):
+    """
+    API xuất danh sách mailbox logs sang file Excel.
+    Query params: giống api_query_mailbox (hours, days, date_from, date_to,
+    mail_direction, status, search_email, tenant_id).
+    """
+    tenant, allowed = _resolve_tenant_from_request(request)
+
+    if request.user.is_superuser and not allowed:
+        return JsonResponse({"error": "Vui lòng chọn Tổ chức (Tenant)."}, status=400)
+
+    hours = _parse_int(request.GET.get('hours'))
+    days = _parse_int(request.GET.get('days'))
+    date_from = request.GET.get('date_from') or None
+    date_to = request.GET.get('date_to') or None
+    mail_direction = request.GET.get('mail_direction') or None
+    status = request.GET.get('status') or None
+    search_email = request.GET.get('search_email') or None
+
+    try:
+        # Lấy tất cả bản ghi (không phân trang)
+        data = MailboxService.query(
+            user=request.user,
+            tenant=tenant,
+            hours=hours,
+            days=days,
+            date_from=date_from,
+            date_to=date_to,
+            mail_direction=mail_direction,
+            status=status,
+            search_email=search_email,
+            page=1,
+            page_size=10000,  # Giới hạn 10k records
+        )
+
+        # Tạo file Excel
+        buffer, filename = ExcelExportService.export_mailbox_logs(
+            items=data.get('items', []),
+            filename_prefix='mailbox_logs'
+        )
+
+        return FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except ValidationError as e:
+        return JsonResponse({"error": str(e)}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": f"Lỗi xuất Excel: {str(e)}"}, status=500)
 
 
 @login_required
