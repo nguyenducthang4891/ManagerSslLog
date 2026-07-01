@@ -66,8 +66,9 @@ urlpatterns += [
     # Lấy 1 document backup đầy đủ theo _id -- dùng cho modal JSON chi tiết.
     # tenant_id trong path giống pattern mailbox/audit/host_logs, validate
     # quyền tương tự (xem views_backup.api_backup_log_detail).
-    path('api/tenant/<int:tenant_id>/backup/<str:doc_id>/',
-         views_backup.api_backup_log_detail, name='api_backup_log_detail'),
+    #path('api/tenant/<int:tenant_id>/backup/<str:doc_id>/',views_backup.api_backup_log_detail, name='api_backup_log_detail'),
+path('api/tenant/<int:tenant_id>/mailbox/<path:doc_id>/',
+     views_mailbox.api_mailbox_log_detail, name='api_mailbox_log_detail'),
 ]
 
 urlpatterns += [
